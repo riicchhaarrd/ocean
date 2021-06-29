@@ -1,0 +1,3 @@
+[submodule "rhd"]
+	path = rhd
+	url = https://github.com/riicchhaarrd/rhd

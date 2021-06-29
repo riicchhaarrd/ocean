@@ -34,16 +34,15 @@ heap_string x86(struct ast_node*);
 
 int main( int argc, char** argv )
 {
-	if ( argc < 2 )
-		return 0;
-	heap_string data = read_file( argv[1] );
+    if ( argc < 2 )
+	    return 0;
+    heap_string data = read_file( argv[1] );
 
-	if ( !data )
-	{
-        printf("HEY\n");
-		printf( "failed to read file '%s'\n", argv[1] );
-		return 1;
-	}
+    if ( !data )
+    {
+	    printf( "failed to read file '%s'\n", argv[1] );
+	    return 1;
+    }
     const char *mode = "";
     if(argc>2)
         mode = argv[2];
@@ -87,5 +86,5 @@ int main( int argc, char** argv )
     	linked_list_destroy(&ast_list);
     }
     free(tokens);
-	return 0;
+    return 0;
 }
