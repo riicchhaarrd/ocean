@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# compile our compiler first
+
+cd ..
+./build
+cd test
+
+# use our compiler to generate x86 opcodes and disassemble them into intel instructions
+
+echo "$(rasm2 -a x86 -b 32 -d "$(../ocean ../example i)")" > generated.asm
+
+# finally compile another program which includes our disassembled x86 from generated.asm
+
+nasm -f elf test.asm
+ld -m elf_i386 test.o -o test
+
+# run the program and get the return code
+
+./test
+#echo $?
