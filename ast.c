@@ -2,13 +2,6 @@
 #include "token.h"
 #include "rhd/linked_list.h"
 
-int ast_factor()
-{
-	//if(pp_accept(pp, TK_COLON))
-	//{
-	//}
-}
-
 struct ast_context
 {
     struct token *tokens;
