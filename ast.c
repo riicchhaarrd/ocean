@@ -162,12 +162,15 @@ static struct ast_node *factor(struct ast_context *ctx)
     } else if(!accept(ctx, TK_INTEGER))
     {
         n = int_literal(ctx, ctx->current_token->integer);
+    } else if(!accept(ctx, TK_STRING))
+    {
+        n = string_literal(ctx, ctx->current_token->string);
     } else if(!accept(ctx, TK_EOF))
     {
         n = push_node(ctx, AST_EXIT);
     } else
     {
-		printf("expected integer.. got %d\n", ctx->current_token->type);
+		printf("expected integer.. got %s (%d)\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type);
     }
     return n;
 }

@@ -20,6 +20,7 @@ enum REGISTERS
 struct compile_context
 {
 	heap_string instr;
+    struct linked_list *strings;
     int localsize;
 };
 
@@ -73,8 +74,23 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         break;
     case AST_LITERAL:        
         //mov eax,imm32
-        db(ctx, 0xb8);
-        dd(ctx, n->literal_data.integer);
+        switch(n->literal_data.type)
+        {
+        case LITERAL_INTEGER:
+            db(ctx, 0xb8);
+            dd(ctx, n->literal_data.integer);
+            break;
+        case LITERAL_STRING:
+            db(ctx, 0xb8);
+            dd(ctx, 123);
+            heap_string str = heap_string_new(n->literal_data.string);
+            linked_list_append(ctx->strings, str);
+            //add to string list
+            break;
+        default:
+            perror("unhandled literal");
+            break;
+        }
         break;
     case AST_UNARY_EXPR:
     {
@@ -283,8 +299,12 @@ heap_string x86(struct ast_node *head)
 {
     struct compile_context ctx = {
 		.instr = NULL,
-        .localsize = 0
+        .localsize = 0,
+        .strings = NULL
     };
+
+    ctx.strings = linked_list_create(void*);
+    
     //push ebp
     //mov ebp, esp
     db(&ctx, 0x55);
@@ -297,6 +317,11 @@ heap_string x86(struct ast_node *head)
     db(&ctx, 0x89);
     db(&ctx, 0xec);
     db(&ctx, 0x5d);
-    
+
+    linked_list_reversed_foreach(ctx.strings, heap_string*, it,
+    {
+        heap_string_free(it);
+    });
+    linked_list_destroy(&ctx.strings);
     return ctx.instr;
 }

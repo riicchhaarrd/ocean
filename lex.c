@@ -58,6 +58,11 @@ static int match_test_ident(int ch)
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_';
 }
 
+static int match_test_string(int ch)
+{
+    return ch != '"';
+}
+
 static int match_test_integer(int ch)
 {
     return ch >= '0' && ch <= '9';
@@ -98,6 +103,24 @@ retry:
             return 0;
         }
 	case '"':
+    {
+        ++lex->pos;
+        tk->type = TK_STRING;
+        tk->string[0] = 0;
+        if(!next_check(lex, '"'))
+        {
+            return 0;
+        }
+        heap_string s = next_match(lex, match_test_string);
+        snprintf(tk->string, sizeof(tk->string), "%s", s);
+        heap_string_free(&s);
+        if(next_check(lex, '"'))
+        {
+            //expected closing "
+            return 1;
+        }
+    } break;
+
 	case '\'':
 	case '{':
 	case '}':
