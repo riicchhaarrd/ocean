@@ -13,8 +13,11 @@ enum AST_NODE_TYPE
     AST_BIN_EXPR,
     AST_EXPR_STMT,
     AST_ASSIGNMENT_EXPR,
-	AST_INVALID = -1
+    AST_EXIT,
+	AST_INVALID = -1,
 };
+
+static const char *ast_node_type_strings[] = {"none","program","ident","literal","unary","binary","expression","assignment","exit",NULL};
 
 struct ast_node;
 
@@ -27,7 +30,8 @@ enum AST_LITERAL_TYPE
 
 struct ast_program
 {
-	struct ast_node *entry;
+	//struct ast_node *entry;
+    struct linked_list *body;
 };
 
 struct ast_literal

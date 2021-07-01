@@ -2,6 +2,7 @@
 #include "types.h"
 
 #include "rhd/heap_string.h"
+#include "rhd/linked_list.h"
 #include <assert.h>
 
 enum REGISTERS
@@ -64,7 +65,11 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     switch(n->type)
     {
     case AST_PROGRAM:
-        process(ctx, n->program_data.entry);
+        //process(ctx, n->program_data.entry);
+        linked_list_reversed_foreach(n->program_data.body, struct ast_node**, it,
+        {
+            process(ctx, *it);
+        });
         break;
     case AST_LITERAL:        
         //mov eax,imm32
@@ -261,6 +266,11 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             break;
         }
         //TODO: cleanup local variables
+    } break;
+
+    case AST_EXIT:
+    {
+        //TODO: FIXME
     } break;
     
     default:

@@ -17,8 +17,8 @@ struct lexer
 
 static int next(struct lexer *lex)
 {
-    if(lex->pos + 1 >= lex->bufsz)
-	return -1;
+    if(lex->pos + 1 > lex->bufsz)
+		return -1;
     return lex->buf[lex->pos++];
 }
 
@@ -70,8 +70,12 @@ retry:
     tk->type = TK_INVALID;
     ch = next(lex);
     if(ch == -1)
-	return 1;
-    
+		return 1;
+    if(ch == 0)
+    {
+		tk->type = TK_EOF;
+        return 0;
+    }
     switch(ch)
     {
 	case ' ':
@@ -179,7 +183,7 @@ void parse(heap_string data, struct token **tokens_out/*must be free'd*/, int *n
 			break;
 		}
 		// if(tk.type == TK_IDENT)
-		// printf("token = %d (%s)\n", tk.type, tk.string);
+		//printf("token = %s (%s)\n", token_type_to_string(tk.type), tk.string);
 		linked_list_prepend( lex.tokens, tk );
         (*num_tokens)++;
 	}

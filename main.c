@@ -81,7 +81,7 @@ int main( int argc, char** argv )
                 heap_string_free(&instr);
             }
         }
-        
+    	linked_list_destroy(&root->program_data.body);
         root = NULL;
     	linked_list_destroy(&ast_list);
     }

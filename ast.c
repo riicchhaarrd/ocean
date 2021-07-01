@@ -7,11 +7,9 @@ struct ast_context
     struct token *tokens;
     int num_tokens;
     int token_index;
-
-    struct linked_list *nodelist;
     
-    struct ast_node *head;
-    struct ast_node *root;
+    struct linked_list *node_list;
+    struct ast_node *root_node;
 
     struct token *current_token;
 
@@ -24,6 +22,7 @@ static int accept(struct ast_context *ctx, int type)
     ctx->current_token = tk;
     if(tk->type != type)
     {
+        //printf("tk->type %s (%d) != type %s (%d)\n", token_type_to_string(tk->type), tk->type, token_type_to_string(type), type);
         //ctx->current_token = NULL;
         return 1;
     }
@@ -50,28 +49,12 @@ static int ast_error(struct ast_context *ctx, const char *errmessage)
 
 static struct ast_node *push_node(struct ast_context *ctx, int type)
 {
-    //temporarily store current head
-    struct ast_node *head = ctx->head;
-
 	struct ast_node t = {
-            .parent = head,
+            .parent = NULL,
             .type = type
     };
-    
-    struct ast_node *node = linked_list_prepend(ctx->nodelist, t);
-    
-    ctx->head = node;
-    
+    struct ast_node *node = linked_list_prepend(ctx->node_list, t);
     return node;
-}
-
-static void pop_node(struct ast_context *ctx)
-{
-    //set head to parent of current head
-    assert(ctx->head->parent == NULL && ctx->head != ctx->root);
-    if(ctx->head == ctx->root)
-        return;
-    ctx->head = ctx->head->parent;
 }
 
 static struct ast_node *unary_expr(struct ast_context *ctx, int op, bool prefix, struct ast_node *arg)
@@ -179,6 +162,9 @@ static struct ast_node *factor(struct ast_context *ctx)
     } else if(!accept(ctx, TK_INTEGER))
     {
         n = int_literal(ctx, ctx->current_token->integer);
+    } else if(!accept(ctx, TK_EOF))
+    {
+        n = push_node(ctx, AST_EXIT);
     } else
     {
 		printf("expected integer.. got %d\n", ctx->current_token->type);
@@ -316,12 +302,20 @@ static void print_tabs(int n)
 
 static void print_ast(struct ast_node *n, int depth)
 {
+	//printf("(node type %s)\n", ast_node_type_strings[n->type]);
+    
     print_tabs(depth);
     switch(n->type)
     {
     case AST_PROGRAM:
         printf("[program]\n");
-        print_ast(n->program_data.entry, depth + 1);
+        //print_ast(n->program_data.entry, depth + 1);
+        printf("------------\n");
+        linked_list_reversed_foreach(n->program_data.body, struct ast_node**, it,
+        {
+            print_ast(*it, depth + 1);
+        });
+        printf("------------\n");
         break;
     case AST_LITERAL:
         print_literal(&n->literal_data);
@@ -338,8 +332,17 @@ static void print_ast(struct ast_node *n, int depth)
         print_ast(n->unary_expr_data.argument, depth + 1);
         break;
     case AST_ASSIGNMENT_EXPR:
-        printf("assignment expression\n");
-        //TODO: fix
+        printf("assignment expression operator %c\n", n->assignment_expr_data.operator);
+        printf("lhs");
+        print_ast(n->assignment_expr_data.lhs, depth + 1);
+        printf("rhs");
+        print_ast(n->assignment_expr_data.rhs, depth + 1);
+        break;
+    case AST_IDENTIFIER:
+        printf("identifier '%s'\n", n->identifier_data.name);
+        break;
+    case AST_EXIT:
+        printf("exit\n");
         break;
     default:
 		printf("unhandled type %d\n", n->type);
@@ -350,16 +353,22 @@ static void print_ast(struct ast_node *n, int depth)
 static int parse(struct ast_context *ctx)
 {
     struct ast_node *n = NULL;
-    
-    n = expression(ctx);
 
-    if(n)
+    do
     {
-        if(ctx->verbose)
-        	print_ast(n, 0);
-    } else
-        return ast_error(ctx, "expected integer");
-    ctx->head = n;
+        n = expression(ctx);
+
+        if(n)
+        {
+            //add it to the program
+    		linked_list_prepend(ctx->root_node->program_data.body, n);
+
+            if(n->type == AST_EXIT)
+                break;
+        }
+    } while(n != NULL);
+    //TODO: check for errors
+    //return ast_error(ctx, "expected integer");
     return 0;
 }
 
@@ -371,28 +380,32 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
 		.tokens = tokens,
         .num_tokens = num_tokens,
         .token_index = 0,
-        .root = NULL,
-        .head = NULL,
-        .nodelist = NULL,
+        .root_node = NULL,
+        .node_list = NULL,
         .verbose = verbose
     };
     
-	context.nodelist = linked_list_create( struct ast_node );
+	context.node_list = linked_list_create( struct ast_node );
 
     struct ast_node t = {
             .parent = NULL,
             .type = AST_PROGRAM
     };
-    context.root = linked_list_prepend(context.nodelist, t);
-
-    context.head = context.root; //current head points to root
-
+    //t.program_data.body = linked_list_create( void* );
+    context.root_node = linked_list_prepend(context.node_list, t);
+    context.root_node->program_data.body = linked_list_create(void*);
+    
     if(!parse(&context))
     {
-        *root = context.head;
-        *ll = context.nodelist;
+        if(context.verbose)
+            print_ast(context.root_node, 0);
+
+        *root = context.root_node;
+        *ll = context.node_list;
         return 0;
     }
-    linked_list_destroy(&context.nodelist);
+    
+    linked_list_destroy(&t.program_data.body);
+    linked_list_destroy(&context.node_list);
 	return 1;
 }
