@@ -65,10 +65,10 @@ int main( int argc, char** argv )
 
     struct linked_list *ast_list = NULL;
     struct ast_node *root = NULL;
-    int ast = generate_ast(tokens, num_tokens, &ast_list, &root, mode[0] != 'i');
+    int ast = generate_ast(tokens, num_tokens, &ast_list, &root, mode[0] != 'i' && mode[0] != 'e');
     if(!ast)
     {
-        if(mode[0] == 'i')
+        if(mode[0] == 'i' || mode[0] == 'e')
         {
             //generate native code
             heap_string instr = x86(root);
@@ -78,9 +78,18 @@ int main( int argc, char** argv )
                 //printf("x86 opcodes:\n");
                 for(int i = 0; i < heap_string_size(&instr); ++i)
                     printf("%02X ", instr[i] & 0xff);
+				printf("\n");
+				
+				if(mode[0] == 'e')
+				{
+					//build elf
+					int build_elf_image(heap_string instr, const char *binary_path);
+					int ret = build_elf_image(instr, "bin/example.elf");
+					printf("building elf image (return code = %d)\n", ret);
+				}
                 heap_string_free(&instr);
             }
-        }
+		}
     	linked_list_destroy(&root->program_data.body);
         root = NULL;
     	linked_list_destroy(&ast_list);
