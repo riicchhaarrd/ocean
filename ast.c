@@ -341,16 +341,12 @@ static void print_ast(struct ast_node *n, int depth)
     print_tabs(depth);
     switch(n->type)
     {
-    case AST_PROGRAM:
-        printf("[program]\n");
-        //print_ast(n->program_data.entry, depth + 1);
-        printf("------------\n");
-        linked_list_reversed_foreach(n->program_data.body, struct ast_node**, it,
-        {
-            print_ast(*it, depth + 1);
-        });
-        printf("------------\n");
-        break;
+    case AST_BLOCK_STMT:
+        printf("block statement\n");
+        printf("{\n");
+		linked_list_reversed_foreach( n->block_stmt_data.body, struct ast_node**, it, { print_ast( *it, depth + 1 ); } );
+		printf( "}\n" );
+		break;
     case AST_LITERAL:
         print_literal(&n->literal_data);
         break;
@@ -399,18 +395,60 @@ static void print_ast(struct ast_node *n, int depth)
     }
 }
 
+static struct ast_node *statement(struct ast_context *ctx)
+{
+    if(!accept(ctx, TK_IF))
+	{
+        if(accept(ctx, '('))
+		{
+            printf("expected ( after if\n");
+			return NULL;
+		}
+    	struct ast_node *test = expression(ctx);
+        if(!test)
+		{
+            printf("invalid expression in if statement block\n");
+            return NULL;
+		}
+		if(accept(ctx, ')'))
+		{
+            printf("expected ) after if\n");
+			return NULL;
+		}
+        //TODO: write code to handle if statement and blockstatement
+        if(accept(ctx, '{'))
+		{
+    		struct ast_node *single_stmt = statement(ctx);
+            if(!single_stmt)
+                return NULL;
+            struct ast_node *n = push_node(ctx, AST_IF_STMT);
+            n->if_stmt_data.consequent = single_stmt;
+            n->if_stmt_data.test = test;
+            return n;
+		}
+        return NULL; //TODO: FIXME
+	}
+    
+    struct ast_node *n = expression(ctx);
+    if(accept(ctx, ';'))
+	{
+        printf("expected ; after expression statement\n");
+        return NULL;
+	}
+    return n;
+}
+
 static int parse(struct ast_context *ctx)
 {
     struct ast_node *n = NULL;
 
     do
     {
-        n = expression(ctx);
+        n = statement(ctx);
 
         if(n)
         {
-            //add it to the program
-    		linked_list_prepend(ctx->root_node->program_data.body, n);
+    		linked_list_prepend(ctx->root_node->block_stmt_data.body, n);
 
             if(n->type == AST_EXIT)
                 break;
@@ -438,11 +476,10 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
 
     struct ast_node t = {
             .parent = NULL,
-            .type = AST_PROGRAM
+            .type = AST_BLOCK_STMT
     };
-    //t.program_data.body = linked_list_create( void* );
     context.root_node = linked_list_prepend(context.node_list, t);
-    context.root_node->program_data.body = linked_list_create(void*);
+    context.root_node->block_stmt_data.body = linked_list_create(void*);
     
     if(!parse(&context))
     {
@@ -454,7 +491,7 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         return 0;
     }
     
-    linked_list_destroy(&t.program_data.body);
+    linked_list_destroy(&t.block_stmt_data.body);
     linked_list_destroy(&context.node_list);
 	return 1;
 }

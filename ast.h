@@ -38,9 +38,8 @@ enum AST_LITERAL_TYPE
     LITERAL_STRING
 };
 
-struct ast_program
+struct ast_block_stmt
 {
-	//struct ast_node *entry;
     struct linked_list *body;
 };
 
@@ -108,6 +107,12 @@ struct ast_expr_stmt
 	struct ast_node *expr;
 };
 
+struct ast_if_stmt
+{
+    struct ast_node *test;
+    struct ast_node *consequent;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -115,7 +120,7 @@ struct ast_node
     int start, end;
     union
     {
-        struct ast_program program_data;
+        struct ast_block_stmt block_stmt_data;
 		struct ast_bin_expr bin_expr_data;
         struct ast_literal literal_data;
         struct ast_expr_stmt expr_stmt_data;
@@ -123,6 +128,7 @@ struct ast_node
         struct ast_assignment_expr assignment_expr_data;
         struct ast_identifier identifier_data;
         struct ast_function_call_expr call_expr_data;
+        struct ast_if_stmt if_stmt_data;
     };
 };
 

@@ -163,8 +163,8 @@ retry:
 		tk->type = TK_IDENT;
 		heap_string s = next_match(lex, match_test_ident);
 		//check whether this ident is a special ident
-		if(!strcmp(s, "loop"))
-		    tk->type = TK_LOOP;
+		if(!strcmp(s, "for"))
+		    tk->type = TK_FOR;
 		else if(!strcmp(s, "if"))
 		    tk->type = TK_IF;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);

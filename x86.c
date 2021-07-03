@@ -117,9 +117,8 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
     {
-    case AST_PROGRAM:
-        //process(ctx, n->program_data.entry);
-        linked_list_reversed_foreach(n->program_data.body, struct ast_node**, it,
+    case AST_BLOCK_STMT:
+        linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
         {
             process(ctx, *it);
         });

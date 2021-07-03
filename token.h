@@ -18,6 +18,7 @@ enum TOKEN_TYPE
     TK_RSHIFT,
     TK_EQUAL,
     TK_IF,
+    TK_FOR,
     TK_LOOP,
     TK_EOF,
     TK_MAX,
@@ -36,6 +37,7 @@ static const char *token_type_strings[TK_MAX] = {
     [TK_EQUAL] = "equal",
     
     [TK_IF] = "if",
+    [TK_FOR] = "for",
     [TK_LOOP] = "loop",
     [TK_EOF] = "eof"
 };
