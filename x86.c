@@ -345,15 +345,36 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             //lea ebx,[ebp-4]
             db(ctx, 0x8d);
             db(ctx, 0x5d);
-            db(ctx, 0xfc - 4 * ctx->localsize++);
 
+            //mov [ebp-4], eax
+            //db(ctx, 0x89);
+            //db(ctx, 0x85);
+            
+            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
+            if(!var)
+            {
+    	        //db(ctx, 0xfc - 4 * ctx->localsize++);
+            	db(ctx, 0xfc - 4 * ctx->localsize++);
+                
+                hash_map_insert(ctx->variables, lhs->identifier_data.name, (struct variable) {
+                        .offset = ctx->localsize - 1
+                });
+            }
+            else
+            {
+            	db(ctx, 0xfc - 4 * var->offset);
+	            //db(ctx, 0xfc - 4 * var->offset);
+            }
+            
+            //db(ctx, 0xff);
+            //db(ctx, 0xff);
+            //db(ctx, 0xff);
+            //db(ctx, 0xff);
+            //db(ctx, 0xff);
+            //db(ctx, 0xff);
             //mov [ebx],eax
             db(ctx, 0x89);
             db(ctx, 0x03);
-
-            hash_map_insert(ctx->variables, lhs->identifier_data.name, (struct variable) {
-                    .offset = ctx->localsize - 1
-            });
         } break;
         
         default:
