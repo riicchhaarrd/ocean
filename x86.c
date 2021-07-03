@@ -3,6 +3,7 @@
 
 #include "rhd/heap_string.h"
 #include "rhd/linked_list.h"
+#include "rhd/hash_map.h"
 #include "std.h"
 
 enum REGISTERS
@@ -17,8 +18,14 @@ enum REGISTERS
     EIP
 };
 
+struct variable
+{
+    int offset;
+};
+
 struct compile_context
 {
+    struct hash_map *variables;
 	heap_string instr;
     struct linked_list *strings;
     int localsize;
@@ -61,14 +68,18 @@ static void buf(struct compile_context *ctx, const char *buf, size_t len)
     }
 }
 
+static void process(struct compile_context *ctx, struct ast_node *n);
+
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
     if(!strcmp(function_name, "exit"))
 	{
         assert(numargs > 0);
+        //maybe later push eax and pop after to preserve the register
+        process(ctx, args[0]);
         //insert linux syscall exit
-        db(ctx, 0xb3); //mov bl,<exit_code>
-        db(ctx, args[0]->literal_data.integer & 0xff);
+        db(ctx, 0x88); //mov bl, al
+        db(ctx, 0xc3);
         db(ctx, 0x31); //xor eax,eax
         db(ctx, 0xc0);
         db(ctx, 0x40); //inc eax
@@ -90,6 +101,18 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             process(ctx, *it);
         });
         break;
+    case AST_IDENTIFIER:
+	{
+        struct variable *var = hash_map_find(ctx->variables, n->identifier_data.name);
+        assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
+
+        //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
+
+        //mov eax,[ebp-4]
+        db(ctx, 0x8b);
+        db(ctx, 0x45);
+        db(ctx, 0xfc - 4 * var->offset);
+	} break;
     case AST_LITERAL:        
         //mov eax,imm32
         switch(n->literal_data.type)
@@ -293,6 +316,10 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             //mov [ebx],eax
             db(ctx, 0x89);
             db(ctx, 0x03);
+
+            hash_map_insert(ctx->variables, lhs->identifier_data.name, (struct variable) {
+                    .offset = ctx->localsize - 1
+            });
         } break;
         
         default:
@@ -337,9 +364,11 @@ heap_string x86(struct ast_node *head)
     struct compile_context ctx = {
 		.instr = NULL,
         .localsize = 0,
-        .strings = NULL
+        .strings = NULL,
+        .variables = NULL
     };
 
+    ctx.variables = hash_map_create(struct variable);
     ctx.strings = linked_list_create(void*);
     
     //push ebp
@@ -359,6 +388,7 @@ heap_string x86(struct ast_node *head)
     {
         heap_string_free(it);
     });
+    hash_map_destroy(&ctx.variables);
     linked_list_destroy(&ctx.strings);
     return ctx.instr;
 }

@@ -127,6 +127,7 @@ static struct ast_node *factor(struct ast_context *ctx)
                 printf("expected rhs... for assignment\n");
                 return NULL;
             }
+        	return assignment_expr(ctx, operator, ident, rhs);
 		} else if(!accept(ctx, '('))
 		{
 			//function call
@@ -156,11 +157,14 @@ static struct ast_node *factor(struct ast_context *ctx)
             return n;
         } else
         {
+            //probably just using it as an identifier e.g func(arg)
+            return ident;
+            
             //TODO: function calls, other ident related stuff
-            printf("got ident, unhandled...\n");
-            return NULL;
+            //printf("got ident, unhandled...\n");
+            //return NULL;
         }
-        return assignment_expr(ctx, operator, ident, rhs);
+        return NULL; //can we be sure that n wasn't changed to be not NULL? just return NULL anyways    
     } else if(!accept(ctx, '('))
     {
         n = expression(ctx);

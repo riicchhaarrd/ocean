@@ -11,6 +11,9 @@
 #define LINKED_LIST_IMPL
 #include "rhd/linked_list.h"
 
+#define HASH_MAP_IMPL
+#include "rhd/hash_map.h"
+
 heap_string read_file( const char* filename )
 {
 	heap_string data = NULL;
