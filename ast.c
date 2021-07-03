@@ -388,6 +388,15 @@ static void print_ast(struct ast_node *n, int depth)
             printf("\targ %d: %s\n", i, AST_NODE_TYPE_to_string(args[i]->type));
 		}
 	} break;
+
+    case AST_IF_STMT:
+    {
+        struct ast_node *test = n->if_stmt_data.test;
+        struct ast_node *consequent = n->if_stmt_data.consequent;
+        printf("if statement\n");
+        print_ast(test, depth + 1);
+        print_ast(consequent, depth + 1);
+    } break;
     
     default:
 		printf("unhandled type %d\n", n->type);

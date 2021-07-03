@@ -1,5 +1,4 @@
-b = 123;
-c = 200;
-if(true)
-c=3;
-exit(b);
+a = 1;
+if(1)
+	a = 2;
+exit(a);

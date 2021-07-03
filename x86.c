@@ -76,6 +76,17 @@ static void db(struct compile_context *ctx, u8 op)
     heap_string_push(&ctx->instr, op);
 }
 
+static void set8(struct compile_context *ctx, int offset, u8 op)
+{
+    ctx->instr[offset] = op;
+}
+
+static void set32(struct compile_context *ctx, int offset, u32 value)
+{
+    u32 *ptr = (u32*)&ctx->instr[offset];
+    *ptr = value;
+}
+
 static void buf(struct compile_context *ctx, const char *buf, size_t len)
 {
     for(size_t i = 0; i < len; ++i)
@@ -117,6 +128,38 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
     {
+    case AST_IF_STMT:
+    {
+        struct ast_node *test = n->if_stmt_data.test;
+        process(ctx, test);
+
+        //i think we should have our test value in eax now, just test whether it's not zero
+
+        //cmp eax,0
+        db(ctx, 0x83);
+        db(ctx, 0xf8);
+        db(ctx, 0x00);
+
+        //let's assume the jmp distance is small enough so we can relative jump
+
+        //db(ctx, 0xcc); //int3
+        
+        //je <relative_offset>
+        db(ctx, 0x74);
+		int tmp = instruction_position(ctx);
+        db(ctx, 0x0); //placeholder
+        
+        struct ast_node *consequent = n->if_stmt_data.consequent;
+        process(ctx, consequent);
+        
+        //db(ctx, 0xcc); //int3
+        
+        int off = instruction_position(ctx) - tmp - 1;
+        assert(off > 0);
+        int op = (0xfe + off) % 256;
+        set8(ctx, tmp, op & 0xff);
+    } break;
+    
     case AST_BLOCK_STMT:
         linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
         {
