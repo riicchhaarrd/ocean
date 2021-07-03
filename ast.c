@@ -127,6 +127,33 @@ static struct ast_node *factor(struct ast_context *ctx)
                 printf("expected rhs... for assignment\n");
                 return NULL;
             }
+		} else if(!accept(ctx, '('))
+		{
+			//function call
+            n = push_node(ctx, AST_FUNCTION_CALL_EXPR);
+            n->call_expr_data.callee = ident; //in this case the callee is just a identifier e.g a() where as a is the callee
+            n->call_expr_data.numargs = 0;
+            
+			do
+			{
+                //if the function call is just without arguments, break instantly
+				if(!accept(ctx, ')'))
+                    break;
+				struct ast_node *arg = expression(ctx);
+                if(!arg)
+				{
+                    //arg got null and we got an error somewhere
+                    //the allocated node n will be cleaned up by the zone allocated memory or in the list it's in later
+                    printf("error in function call...\n");
+                    return NULL;
+				}
+				//printf("arg %02X\n", arg);
+                n->call_expr_data.arguments[n->call_expr_data.numargs++] = arg;
+                
+				if(!accept(ctx, ')')) //check whether we've hit the last parameter
+                    break;
+			} while(!accept(ctx, ','));
+            return n;
         } else
         {
             //TODO: function calls, other ident related stuff
@@ -347,6 +374,21 @@ static void print_ast(struct ast_node *n, int depth)
     case AST_EXIT:
         printf("exit\n");
         break;
+
+    case AST_FUNCTION_CALL_EXPR:
+    {
+        struct ast_node **args = n->call_expr_data.arguments;
+        int numargs = n->call_expr_data.numargs;
+        struct ast_node *callee = n->call_expr_data.callee;
+        assert(callee->type == AST_IDENTIFIER);
+        //TODO: handle other callee types
+        printf("function call expression '%s'\n", callee->identifier_data.name);
+        for(int i = 0; i < numargs; ++i)
+		{
+            printf("\targ %d: %s\n", i, AST_NODE_TYPE_to_string(args[i]->type));
+		}
+	} break;
+    
     default:
 		printf("unhandled type %d\n", n->type);
         break;

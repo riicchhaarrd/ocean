@@ -3,7 +3,7 @@
 
 #include "rhd/heap_string.h"
 #include "rhd/linked_list.h"
-#include <assert.h>
+#include "std.h"
 
 enum REGISTERS
 {
@@ -59,6 +59,24 @@ static void buf(struct compile_context *ctx, const char *buf, size_t len)
     {
 		heap_string_push(&ctx->instr, buf[i] & 0xff);
     }
+}
+
+static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
+{
+    if(!strcmp(function_name, "exit"))
+	{
+        assert(numargs > 0);
+        //insert linux syscall exit
+        db(ctx, 0xb3); //mov bl,<exit_code>
+        db(ctx, args[0]->literal_data.integer & 0xff);
+        db(ctx, 0x31); //xor eax,eax
+        db(ctx, 0xc0);
+        db(ctx, 0x40); //inc eax
+        db(ctx, 0xcd); //int 0x80
+        db(ctx, 0x80);
+        return 0;
+	}
+	return 1;
 }
 
 static void process(struct compile_context *ctx, struct ast_node *n)
@@ -283,6 +301,25 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         }
         //TODO: cleanup local variables
     } break;
+
+    case AST_FUNCTION_CALL_EXPR:
+    {
+        struct ast_node **args = n->call_expr_data.arguments;
+        int numargs = n->call_expr_data.numargs;
+        struct ast_node *callee = n->call_expr_data.callee;
+
+        if(callee->type == AST_IDENTIFIER)
+		{
+            int ret = function_call_ident(ctx, callee->identifier_data.name, args, numargs);
+            if(ret)
+			{
+                FIXME("cannot find function '%s'\n", callee->identifier_data.name);
+			}
+		} else
+		{
+            FIXME("unhandled function call expression callee type");
+		}
+	} break;
 
     case AST_EXIT:
     {

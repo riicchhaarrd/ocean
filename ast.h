@@ -3,21 +3,31 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-enum AST_NODE_TYPE
-{
-	AST_NONE,
-    AST_PROGRAM,
-    AST_IDENTIFIER,
-    AST_LITERAL,
-    AST_UNARY_EXPR,
-    AST_BIN_EXPR,
-    AST_EXPR_STMT,
-    AST_ASSIGNMENT_EXPR,
-    AST_EXIT,
-	AST_INVALID = -1,
-};
 
-static const char *ast_node_type_strings[] = {"none","program","ident","literal","unary","binary","expression","assignment","exit",NULL};
+#define ENUM_BEGIN(typ) enum typ {
+#define ENUM(nam) nam
+#define ENUM_VALUE(nam, val) nam = val
+#define ENUM_END(typ) };
+#include "ast_node_type.h"
+
+#undef ENUM_BEGIN
+#undef ENUM
+#undef ENUM_VALUE
+#undef ENUM_END
+
+#define ENUM_BEGIN(typ) static const char * typ ## _strings[] = {
+#define ENUM(nam) #nam
+#define ENUM_VALUE(nam, val) #nam
+#define ENUM_END( typ )                                                                                                \
+	}                                                                                                                  \
+	;                                                                                                                  \
+	static const char* typ##_to_string( int i )                                                                        \
+	{                                                                                                                  \
+		if ( i < 0 )                                                                                                   \
+			return "invalid";                                                                                          \
+		return typ##_strings[i];                                                                                       \
+	}
+#include "ast_node_type.h"
 
 struct ast_node;
 
@@ -72,6 +82,13 @@ struct ast_bin_expr
     int operator;
 };
 
+struct ast_function_call_expr
+{
+    struct ast_node *callee;
+    struct ast_node *arguments[32];
+    int numargs;
+};
+
 struct ast_unary_expr
 {
 	struct ast_node *argument;
@@ -105,6 +122,7 @@ struct ast_node
         struct ast_unary_expr unary_expr_data;
         struct ast_assignment_expr assignment_expr_data;
         struct ast_identifier identifier_data;
+        struct ast_function_call_expr call_expr_data;
     };
 };
 
