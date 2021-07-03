@@ -23,13 +23,29 @@ struct variable
     int offset;
 };
 
+struct relocation
+{
+    int type; //FIXME: unused for now
+    int size;
+    int from;
+    int to;
+};
+
 struct compile_context
 {
     struct hash_map *variables;
+    heap_string data;
+
+    struct linked_list *relocations;
+    
 	heap_string instr;
-    struct linked_list *strings;
     int localsize;
 };
+
+int instruction_position(struct compile_context *ctx)
+{
+    return heap_string_size(&ctx->instr);
+}
 
 static void dd(struct compile_context *ctx, u32 i)
 {
@@ -90,6 +106,13 @@ static int function_call_ident(struct compile_context *ctx, const char *function
 	return 1;
 }
 
+static int add_data(struct compile_context *ctx, void *data, u32 data_size)
+{
+    int curpos = heap_string_size(&ctx->data);
+    heap_string_appendn(&ctx->data, data, data_size);
+	return curpos;
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
@@ -122,12 +145,24 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             dd(ctx, n->literal_data.integer);
             break;
         case LITERAL_STRING:
+        {
             db(ctx, 0xb8);
-            dd(ctx, 123);
-            heap_string str = heap_string_new(n->literal_data.string);
-            linked_list_append(ctx->strings, str);
-            //add to string list
-            break;
+            int from = instruction_position(ctx);
+            dd(ctx, 0xcccccccc); //placeholder
+            const char *str = n->literal_data.string;
+            int sz = strlen(str) + 1;
+            int to = add_data(ctx, (void*)str, sz);
+            
+            //TODO: FIXME make it cleaner and add just a function call before the placeholder inject/xref something
+            //and make it work with any type of data so it can go into the .data segment
+
+            struct relocation reloc = {
+                .from = from,
+                .to = to,
+                .size = sz
+            };
+            linked_list_prepend(ctx->relocations, reloc);
+        } break;
         default:
             perror("unhandled literal");
             break;
@@ -364,12 +399,13 @@ heap_string x86(struct ast_node *head)
     struct compile_context ctx = {
 		.instr = NULL,
         .localsize = 0,
-        .strings = NULL,
-        .variables = NULL
+        .variables = NULL,
+        .relocations = NULL
     };
 
+    ctx.relocations = linked_list_create(struct relocation);
     ctx.variables = hash_map_create(struct variable);
-    ctx.strings = linked_list_create(void*);
+    ctx.data = NULL;
     
     //push ebp
     //mov ebp, esp
@@ -384,11 +420,8 @@ heap_string x86(struct ast_node *head)
     db(&ctx, 0xec);
     db(&ctx, 0x5d);
 
-    linked_list_reversed_foreach(ctx.strings, heap_string*, it,
-    {
-        heap_string_free(it);
-    });
+    heap_string_free(&ctx.data);
     hash_map_destroy(&ctx.variables);
-    linked_list_destroy(&ctx.strings);
+    linked_list_destroy(&ctx.relocations);
     return ctx.instr;
 }
