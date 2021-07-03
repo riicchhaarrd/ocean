@@ -430,9 +430,13 @@ static struct ast_node *statement(struct ast_context *ctx)
 	}
     
     struct ast_node *n = expression(ctx);
+    if(!n)
+        return NULL;
+    if(n->type == AST_EXIT)
+        return n;
     if(accept(ctx, ';'))
 	{
-        printf("expected ; after expression statement\n");
+        printf("expected ; after expression statement got '%s'\n", token_type_to_string(ctx->current_token->type));
         return NULL;
 	}
     return n;
