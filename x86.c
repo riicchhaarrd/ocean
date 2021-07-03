@@ -124,6 +124,27 @@ static int add_data(struct compile_context *ctx, void *data, u32 data_size)
 	return curpos;
 }
 
+static int get_local_variable_size(struct compile_context *ctx, struct ast_node *n)
+{
+    assert(n->type == AST_BLOCK_STMT);
+    
+    int total = 0;
+    //TODO: fix this and make it change depending on variable type declaration instead of assignment
+    linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
+    {
+        if((*it)->type == AST_ASSIGNMENT_EXPR)
+        {
+            total += 4; //FIXME: shouldn't always be 4 bytes
+        }
+    });
+    //align to 32
+    //TODO: fix this make sure the esp value is aligned instead
+    int aligned = total & ~31;
+    if(aligned == 0)
+        return 32;
+    return aligned;
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
@@ -141,31 +162,60 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         db(ctx, 0x00);
 
         //let's assume the jmp distance is small enough so we can relative jump
-
-        //db(ctx, 0xcc); //int3
         
         //je <relative_offset>
-        db(ctx, 0x74);
 		int tmp = instruction_position(ctx);
+        db(ctx, 0x74);
         db(ctx, 0x0); //placeholder
+        
+        //db(ctx, 0xcc); //int3
         
         struct ast_node *consequent = n->if_stmt_data.consequent;
         process(ctx, consequent);
         
-        //db(ctx, 0xcc); //int3
-        
-        int off = instruction_position(ctx) - tmp - 1;
+        int off = instruction_position(ctx) - tmp;
         assert(off > 0);
         int op = (0xfe + off) % 256;
-        set8(ctx, tmp, op & 0xff);
+        set8(ctx, tmp + 1, op & 0xff);
+        
+        //db(ctx, 0xcc); //int3
     } break;
     
     case AST_BLOCK_STMT:
+    {
+        //db(ctx, 0xcc); //int3
+        int localsize = get_local_variable_size(ctx, n);
+        //push ebp
+        //mov ebp, esp
+        db(ctx, 0x55);
+        db(ctx, 0x89);
+        db(ctx, 0xe5);
+        
+        //allocate some space
+
+        //sub esp, 4
+        //works for < 0xff
+        //db(ctx, 0x83);
+        //db(ctx, 0xec);
+        //db(ctx, 0x04);
+
+        //sub esp, imm32
+        db(ctx, 0x81);
+        db(ctx, 0xec);
+        dd(ctx, localsize);
+        
         linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
         {
             process(ctx, *it);
         });
-        break;
+
+		//mov esp,ebp
+        //pop ebp
+        db(ctx, 0x89);
+        db(ctx, 0xec);
+        db(ctx, 0x5d);
+        
+    } break;
     case AST_IDENTIFIER:
 	{
         struct variable *var = hash_map_find(ctx->variables, n->identifier_data.name);
@@ -367,13 +417,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 
     case AST_ASSIGNMENT_EXPR:
     {
-        //allocate some space
-
-        //sub esp, 4
-        db(ctx, 0x83);
-        db(ctx, 0xec);
-        db(ctx, 0x04);
-        
         struct ast_node *lhs = n->assignment_expr_data.lhs;
         assert(lhs->type == AST_IDENTIFIER);
         
@@ -424,7 +467,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             printf("unhandled assignment operator\n");
             break;
         }
-        //TODO: cleanup local variables
     } break;
 
     case AST_FUNCTION_CALL_EXPR:
@@ -470,18 +512,7 @@ heap_string x86(struct ast_node *head)
     ctx.variables = hash_map_create(struct variable);
     ctx.data = NULL;
     
-    //push ebp
-    //mov ebp, esp
-    db(&ctx, 0x55);
-    db(&ctx, 0x89);
-    db(&ctx, 0xe5);
     process(&ctx, head);
-
-    //mov esp,ebp
-    //pop ebp
-    db(&ctx, 0x89);
-    db(&ctx, 0xec);
-    db(&ctx, 0x5d);
 
     heap_string_free(&ctx.data);
     hash_map_destroy(&ctx.variables);
