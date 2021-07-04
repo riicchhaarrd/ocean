@@ -75,6 +75,7 @@ int main( int argc, char** argv )
         {
             //generate native code
             heap_string instr = x86(root);
+            heap_string data_buf = heap_string_new("hello world");
             if(instr)
             {
                 //example rasm2 -a x86 -b 32 -d "B8 20 00 00 00 B9 08 00 00 00 F7 F9"
@@ -86,12 +87,13 @@ int main( int argc, char** argv )
 				if(mode[0] == 'e')
 				{
 					//build elf
-					int build_elf_image(heap_string instr, const char *binary_path);
-					int ret = build_elf_image(instr, "bin/example.elf");
+					int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_path);
+					int ret = build_elf_image(instr, data_buf, "bin/example.elf");
 					printf("building elf image (return code = %d)\n", ret);
 				}
                 heap_string_free(&instr);
             }
+            heap_string_free(&data_buf);
 		}
     	linked_list_destroy(&root->block_stmt_data.body);
         root = NULL;

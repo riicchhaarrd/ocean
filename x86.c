@@ -214,8 +214,8 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         db(ctx, 0x89);
         db(ctx, 0xec);
         db(ctx, 0x5d);
-        
     } break;
+    
     case AST_IDENTIFIER:
 	{
         struct variable *var = hash_map_find(ctx->variables, n->identifier_data.name);
