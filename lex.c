@@ -115,6 +115,7 @@ static int match_test_integer(int ch)
 
 static int token(struct lexer *lex, struct token *tk)
 {
+    int single_line_comment = 0;
     int ch;
 retry:
     ch = next(lex);
@@ -125,7 +126,13 @@ retry:
 		tk->type = TK_EOF;
         return 0;
     }
-    tk->type = ch;
+
+    if(ch == '\n')
+        single_line_comment = 0;
+    if(single_line_comment)
+        goto retry;
+
+	tk->type = ch;
     switch(ch)
     {
 	case ' ':
@@ -175,7 +182,11 @@ retry:
         }
     } break;
 	case '/':
-        if(!next_check(lex, '='))
+        if(!next_check(lex, '/'))
+        {
+            single_line_comment = 1;
+            goto retry;
+        } else if(!next_check(lex, '='))
         {
             tk->type = TK_DIVIDE_ASSIGN;
             return 0;
