@@ -213,6 +213,10 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     case AST_IDENTIFIER:
 	{
         struct variable *var = hash_map_find(ctx->variables, n->identifier_data.name);
+        if(!var)
+		{
+            printf("variable '%s' doesn't exist.\n", n->identifier_data.name);
+		}
         assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
 
         //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
