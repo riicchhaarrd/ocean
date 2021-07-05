@@ -406,6 +406,7 @@ static void print_ast(struct ast_node *n, int depth)
     }
 }
 
+static struct ast_node *block(struct ast_context *ctx);
 static struct ast_node *statement(struct ast_context *ctx)
 {
     if(!accept(ctx, TK_IF))
@@ -426,18 +427,21 @@ static struct ast_node *statement(struct ast_context *ctx)
             printf("expected ) after if\n");
 			return NULL;
 		}
-        //TODO: write code to handle if statement and blockstatement
+        struct ast_node *if_node = push_node(ctx, AST_IF_STMT);
+        if_node->if_stmt_data.test = test;
         if(accept(ctx, '{'))
 		{
     		struct ast_node *single_stmt = statement(ctx);
             if(!single_stmt)
                 return NULL;
-            struct ast_node *n = push_node(ctx, AST_IF_STMT);
-            n->if_stmt_data.consequent = single_stmt;
-            n->if_stmt_data.test = test;
-            return n;
+            if_node->if_stmt_data.consequent = single_stmt;
+            return if_node;
 		}
-        return NULL; //TODO: FIXME
+        struct ast_node *block_node = block(ctx);
+        if(!block_node)
+            return NULL;
+        if_node->if_stmt_data.consequent = block_node;
+        return if_node;
 	}
     
     struct ast_node *n = expression(ctx);
@@ -453,29 +457,29 @@ static struct ast_node *statement(struct ast_context *ctx)
     return n;
 }
 
-static int parse(struct ast_context *ctx)
+//TODO: free/cleanup linked lists statements in block ast nodes either through zone allocation or manually
+static struct ast_node *block(struct ast_context *ctx)
 {
-    struct ast_node *n = NULL;
+    accept(ctx, '{');
+    
+    struct ast_node *block_node = push_node(ctx, AST_BLOCK_STMT);
+    block_node->block_stmt_data.body = linked_list_create(void*);
 
-    do
-    {
-        n = statement(ctx);
+    while(1)
+	{
+		if(!accept(ctx, '}'))
+            break;
+        struct ast_node *n = statement(ctx);
+        if(!n) return NULL;
+        linked_list_prepend(block_node->block_stmt_data.body, n);
 
-        if(n)
-        {
-    		linked_list_prepend(ctx->root_node->block_stmt_data.body, n);
-
-            if(n->type == AST_EXIT)
-                break;
-        }
-    } while(n != NULL);
-    //TODO: check for errors
-    //return ast_error(ctx, "expected integer");
-    return 0;
+        if(n->type == AST_EXIT)
+            break;
+	}
+    return block_node;
 }
 
 //TODO: fix head/root expression/statement flow
-
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool verbose)
 {
     struct ast_context context = {
@@ -488,15 +492,9 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
     };
     
 	context.node_list = linked_list_create( struct ast_node );
-
-    struct ast_node t = {
-            .parent = NULL,
-            .type = AST_BLOCK_STMT
-    };
-    context.root_node = linked_list_prepend(context.node_list, t);
-    context.root_node->block_stmt_data.body = linked_list_create(void*);
+    context.root_node = block(&context);
     
-    if(!parse(&context))
+    if(context.root_node)
     {
         if(context.verbose)
             print_ast(context.root_node, 0);
@@ -506,7 +504,6 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         return 0;
     }
     
-    linked_list_destroy(&t.block_stmt_data.body);
     linked_list_destroy(&context.node_list);
 	return 1;
 }

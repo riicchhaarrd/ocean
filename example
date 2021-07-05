@@ -1,3 +1,6 @@
-a = "test";
-write(1, a, 4);
+if(1)
+{
+    a = "test\n";
+    write(1, a, 6);
+}
 exit(a);
