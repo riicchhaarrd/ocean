@@ -79,7 +79,12 @@ static struct ast_node *bin_expr(struct ast_context *ctx, int op, struct ast_nod
 
 static struct ast_node *assignment_expr(struct ast_context *ctx, int op, struct ast_node *lhs, struct ast_node *rhs)
 {
-    struct ast_node *n = push_node(ctx, AST_ASSIGNMENT_EXPR);
+    if(lhs->type != AST_IDENTIFIER)
+	{
+        printf("expected lhs to be a identifier\n");
+		return NULL;
+	}
+	struct ast_node *n = push_node(ctx, AST_ASSIGNMENT_EXPR);
     n->bin_expr_data.operator = op;
     n->bin_expr_data.lhs = lhs;
     n->bin_expr_data.rhs = rhs;
@@ -227,7 +232,8 @@ static struct ast_node *term(struct ast_context *ctx)
     //first one is lhs
     //and it's now a binop
     
-    while(!accept(ctx, '/') || !accept(ctx, '*') || !accept(ctx, '%'))
+    while(!accept(ctx, '/') || !accept(ctx, '*') || !accept(ctx, '%')
+          || !accept(ctx, TK_DIVIDE_ASSIGN) || !accept(ctx, TK_MULTIPLY_ASSIGN) || !accept(ctx, TK_MOD_ASSIGN))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = factor(ctx);
@@ -236,7 +242,9 @@ static struct ast_node *term(struct ast_context *ctx)
 			printf("error.... no rhs..\n");
             return NULL;
         }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        lhs = operator < 0xff ?
+            bin_expr(ctx, operator, lhs, rhs) :
+            assignment_expr(ctx, operator, lhs, rhs);
     }
     return lhs;
 }
@@ -248,7 +256,7 @@ static struct ast_node *add_and_subtract(struct ast_context *ctx)
     struct ast_node *lhs = term(ctx);
     if(!lhs)
         return NULL;
-    while(!accept(ctx, '+') || !accept(ctx, '-'))
+    while(!accept(ctx, '+') || !accept(ctx, '-') || !accept(ctx, TK_PLUS_ASSIGN) || !accept(ctx, TK_MINUS_ASSIGN))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = term(ctx);
@@ -257,19 +265,20 @@ static struct ast_node *add_and_subtract(struct ast_context *ctx)
 			printf("error.... no rhs..\n");
             return NULL;
         }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        lhs = operator < 0xff ?
+            bin_expr(ctx, operator, lhs, rhs) :
+            assignment_expr(ctx, operator, lhs, rhs);
     }
     return lhs;
 }
 
-static struct ast_node *bitwise_and(struct ast_context *ctx)
+static struct ast_node *relational(struct ast_context *ctx)
 {
     /* TODO: add more expressions */
     struct ast_node *lhs = add_and_subtract(ctx);
     if(!lhs)
         return NULL;
-    
-    while(!accept(ctx, '&'))
+    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = add_and_subtract(ctx);
@@ -283,6 +292,29 @@ static struct ast_node *bitwise_and(struct ast_context *ctx)
     return lhs;
 }
 
+static struct ast_node *bitwise_and(struct ast_context *ctx)
+{
+    /* TODO: add more expressions */
+    struct ast_node *lhs = relational(ctx);
+    if(!lhs)
+        return NULL;
+    
+    while(!accept(ctx, '&') || !accept(ctx, TK_AND_ASSIGN))
+    {
+        int operator = ctx->current_token->type;
+    	struct ast_node *rhs = relational(ctx);
+        if(!rhs)
+        {
+			printf("error.... no rhs..\n");
+            return NULL;
+        }
+        lhs = operator < 0xff ?
+            bin_expr(ctx, operator, lhs, rhs) :
+            assignment_expr(ctx, operator, lhs, rhs);
+    }
+    return lhs;
+}
+
 static struct ast_node *bitwise_xor(struct ast_context *ctx)
 {
     /* TODO: add more expressions */
@@ -290,7 +322,7 @@ static struct ast_node *bitwise_xor(struct ast_context *ctx)
     if(!lhs)
         return NULL;
     
-    while(!accept(ctx, '^'))
+    while(!accept(ctx, '^') || !accept(ctx, TK_XOR_ASSIGN))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = bitwise_and(ctx);
@@ -299,7 +331,9 @@ static struct ast_node *bitwise_xor(struct ast_context *ctx)
 			printf("error.... no rhs..\n");
             return NULL;
         }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        lhs = operator < 0xff ?
+            bin_expr(ctx, operator, lhs, rhs) :
+            assignment_expr(ctx, operator, lhs, rhs);
     }
     return lhs;
 }
@@ -311,7 +345,7 @@ static struct ast_node *bitwise_or(struct ast_context *ctx)
     if(!lhs)
         return NULL;
     
-    while(!accept(ctx, '|'))
+    while(!accept(ctx, '|') || !accept(ctx, TK_OR_ASSIGN))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = bitwise_xor(ctx);
@@ -320,7 +354,9 @@ static struct ast_node *bitwise_or(struct ast_context *ctx)
 			printf("error.... no rhs..\n");
             return NULL;
         }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        lhs = operator < 0xff ?
+            bin_expr(ctx, operator, lhs, rhs) :
+            assignment_expr(ctx, operator, lhs, rhs);
     }
     return lhs;
 }
