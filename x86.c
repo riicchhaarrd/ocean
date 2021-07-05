@@ -126,7 +126,7 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
     //TODO: fix this and make it change depending on variable type declaration instead of assignment
     linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
     {
-        if((*it)->type == AST_ASSIGNMENT_EXPR)
+        if((*it)->type == AST_ASSIGNMENT_EXPR && (*it)->assignment_expr_data.operator == '=')
         {
             total += 4; //FIXME: shouldn't always be 4 bytes
         }
