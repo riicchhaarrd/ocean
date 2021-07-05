@@ -1,6 +1,5 @@
-if(1)
+//int3();
+for(i=1; i < 10; i+=1)
 {
-    a = "test\n";
-    write(1, a, 6);
+    write(1, "hello\n", 7);
 }
-exit(a);
