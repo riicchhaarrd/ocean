@@ -34,6 +34,49 @@ static int next_check(struct lexer *lex, int check)
     return 0;
 }
 
+static heap_string next_match_string(struct lexer *lex)
+{
+    //undo the fetch from before
+    --lex->pos;
+    
+    heap_string s = NULL;
+    int bs = 0;
+    while(1)
+    {
+        int ch = next(lex);
+        if(ch == -1 || ch == '"')
+        {
+            --lex->pos;
+            return s;
+        }
+        if(bs)
+        {
+            switch(ch)
+            {
+            case 'n':
+                ch = '\n';
+                break;
+            case 'r':
+                ch = '\r';
+                break;
+            case 't':
+                ch = '\t';
+                break;
+            case '\\':
+                ch = '\\';
+                break;
+            }
+            bs = 0;
+        }
+        
+        if(ch == '\\')
+            bs = 1;
+        else
+        	heap_string_push(&s, ch);
+    }
+    return s;
+}
+
 static heap_string next_match(struct lexer *lex, int (*cmp)(int))
 {
     //undo the fetch from before
@@ -111,7 +154,7 @@ retry:
         {
             return 0;
         }
-        heap_string s = next_match(lex, match_test_string);
+        heap_string s = next_match_string(lex);
         snprintf(tk->string, sizeof(tk->string), "%s", s);
         heap_string_free(&s);
         if(next_check(lex, '"'))
