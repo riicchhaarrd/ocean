@@ -138,11 +138,19 @@ retry:
         {
             tk->type = TK_LSHIFT;
             return 0;
+        } else if(!next_check(lex, '='))
+        {
+            tk->type = TK_LEQUAL;
+            return 0;
         }
 	case '>':
         if(!next_check(lex, '>'))
         {
             tk->type = TK_RSHIFT;
+            return 0;
+        } else if(!next_check(lex, '='))
+        {
+            tk->type = TK_GEQUAL;
             return 0;
         }
 	case '"':
@@ -168,15 +176,42 @@ retry:
 	case '{':
 	case '}':
 	case '/':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_DIVIDE_ASSIGN;
+            return 0;
+        }
 	case '*':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_MULTIPLY_ASSIGN;
+            return 0;
+        }
 	case '[':
 	case ']':
 	case '&':
 	case '^':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_XOR_ASSIGN;
+            return 0;
+        }
 	case '|':
 	case '!':
+        
 	case '-':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_MINUS_ASSIGN;
+            return 0;
+        }
 	case '+':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_PLUS_ASSIGN;
+            return 0;
+        }
+        
 	case '(':
 	case ')':
 	case '=':
@@ -190,6 +225,11 @@ retry:
 	case '\\':
 	case ',':
 	case '%':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_MOD_ASSIGN;
+            return 0;
+        }
 	case '.':
 	    tk->type = ch;
 	    break;
