@@ -442,9 +442,64 @@ static struct ast_node *statement(struct ast_context *ctx)
             return NULL;
         if_node->if_stmt_data.consequent = block_node;
         return if_node;
+	} else if(!accept(ctx, TK_FOR))
+	{
+        if(accept(ctx, '('))
+		{
+            printf("expected ( after for\n");
+			return NULL;
+		}
+    	struct ast_node *init = expression(ctx);
+        if(!init)
+		{
+            printf("invalid init expression in for statement block\n");
+            return NULL;
+		}
+        
+        if(accept(ctx, ';'))
+		{
+            printf("expected ; after expression\n");
+			return NULL;
+		}
+        
+    	struct ast_node *test = expression(ctx);
+        if(!test)
+		{
+            printf("invalid test expression in for statement block\n");
+            return NULL;
+		}
+        
+        if(accept(ctx, ';'))
+		{
+            printf("expected ; after expression\n");
+			return NULL;
+		}
+        
+    	struct ast_node *update = expression(ctx);
+        if(!update)
+		{
+            printf("invalid update expression in for statement block\n");
+            return NULL;
+		}
+        
+        if(accept(ctx, ')'))
+		{
+            printf("expected ) after for\n");
+			return NULL;
+		}
+        //TODO: FIXME make it clear whether we expect { here or in the block function
+        struct ast_node *block_node = block(ctx);
+        if(!block_node)
+        	return NULL;
+        struct ast_node *for_node = push_node(ctx, AST_FOR_STMT);
+        for_node->for_stmt_data.init = init;
+        for_node->for_stmt_data.test = test;
+        for_node->for_stmt_data.update = update;
+        for_node->for_stmt_data.body = block_node;
+        return for_node;
 	}
-    
-    struct ast_node *n = expression(ctx);
+
+	struct ast_node *n = expression(ctx);
     if(!n)
         return NULL;
     if(n->type == AST_EXIT)
