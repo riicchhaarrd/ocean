@@ -175,11 +175,12 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         //db(ctx, 0xcc); //int3
     } break;
-    
-    case AST_BLOCK_STMT:
+
+    //TODO: implement this properly
+    case AST_FUNCTION_DECL:
     {
-        //db(ctx, 0xcc); //int3
-        int localsize = get_local_variable_size(ctx, n);
+        assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
+        int localsize = get_local_variable_size(ctx, n->func_decl_data.body);
         //push ebp
         //mov ebp, esp
         db(ctx, 0x55);
@@ -199,16 +200,22 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         db(ctx, 0xec);
         dd(ctx, localsize);
         
-        linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
-        {
-            process(ctx, *it);
-        });
-
+        process(ctx, n->func_decl_data.body);
+        
 		//mov esp,ebp
         //pop ebp
         db(ctx, 0x89);
         db(ctx, 0xec);
         db(ctx, 0x5d);
+    } break;
+    
+    case AST_BLOCK_STMT:
+    {
+        //db(ctx, 0xcc); //int3
+        linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
+        {
+            process(ctx, *it);
+        });
     } break;
     
     case AST_IDENTIFIER:
@@ -465,6 +472,33 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             
     } break;
 
+    case AST_FOR_STMT:
+    {
+        process(ctx, n->for_stmt_data.init);
+        
+        int pos = instruction_position(ctx);
+        process(ctx, n->for_stmt_data.test);
+        //test eax,eax
+        db(ctx, 0x85);
+        db(ctx, 0xc0);
+        
+        //jz rel32
+        int jz_pos = instruction_position(ctx); //jmp_pos + 2 = new_pos
+        db(ctx, 0x0f);
+        db(ctx, 0x84);
+        dd(ctx, 0x0); //placeholder
+
+        process(ctx, n->for_stmt_data.body);
+        process(ctx, n->for_stmt_data.update);
+        int tmp = instruction_position(ctx);
+        
+        //jmp relative
+        db(ctx, 0xe9);
+        dd(ctx, pos - tmp - 5);
+        
+        set32(ctx, jz_pos + 2, instruction_position(ctx) - jz_pos - 6);
+    } break;
+
     case AST_ASSIGNMENT_EXPR:
     {
         struct ast_node *lhs = n->assignment_expr_data.lhs;
@@ -583,8 +617,13 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     ctx->relocations = linked_list_create(struct relocation);
     ctx->variables = hash_map_create(struct variable);
     ctx->data = NULL;
+
+    struct ast_node t = {
+        .type = AST_FUNCTION_DECL
+    };
+    t.func_decl_data.body = head;
+    process(ctx, &t);
     
-    process(ctx, head);
     //insert linux syscall exit
     //xor ebx,ebx
     db(ctx, 0x31);
