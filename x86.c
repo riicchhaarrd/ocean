@@ -580,6 +580,16 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     ctx->data = NULL;
     
     process(ctx, head);
+    //insert linux syscall exit
+    //xor ebx,ebx
+    db(ctx, 0x31);
+    db(ctx, 0xdb);
+
+    db(ctx, 0x31); //xor eax,eax
+    db(ctx, 0xc0);
+    db(ctx, 0x40); //inc eax
+    db(ctx, 0xcd); //int 0x80
+    db(ctx, 0x80);
 
     hash_map_destroy(&ctx->variables);
     return 0;
