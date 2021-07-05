@@ -18,6 +18,8 @@ struct ast_context
 
 static int accept(struct ast_context *ctx, int type)
 {
+    if(ctx->token_index >= ctx->num_tokens)
+        return type == TK_EOF ? 0 : 1;
     struct token *tk = &ctx->tokens[ctx->token_index];
     ctx->current_token = tk;
     if(tk->type != type)
