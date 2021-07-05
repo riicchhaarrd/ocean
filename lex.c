@@ -115,7 +115,6 @@ static int token(struct lexer *lex, struct token *tk)
 {
     int ch;
 retry:
-    tk->type = TK_INVALID;
     ch = next(lex);
     if(ch == -1)
 		return 1;
@@ -124,6 +123,7 @@ retry:
 		tk->type = TK_EOF;
         return 0;
     }
+    tk->type = ch;
     switch(ch)
     {
 	case ' ':
@@ -132,8 +132,7 @@ retry:
 	case '\n':
 	    goto retry;
 
-	case '#':
-	case '<':
+    case '<':
         if(!next_check(lex, '<'))
         {
             tk->type = TK_LSHIFT;
@@ -143,6 +142,7 @@ retry:
             tk->type = TK_LEQUAL;
             return 0;
         }
+        break;
 	case '>':
         if(!next_check(lex, '>'))
         {
@@ -153,6 +153,7 @@ retry:
             tk->type = TK_GEQUAL;
             return 0;
         }
+        break;
 	case '"':
     {
         ++lex->pos;
@@ -171,68 +172,79 @@ retry:
             return 1;
         }
     } break;
-
-	case '\'':
-	case '{':
-	case '}':
 	case '/':
         if(!next_check(lex, '='))
         {
             tk->type = TK_DIVIDE_ASSIGN;
             return 0;
         }
+        break;
 	case '*':
         if(!next_check(lex, '='))
         {
             tk->type = TK_MULTIPLY_ASSIGN;
             return 0;
         }
-	case '[':
-	case ']':
-	case '&':
+        break;
 	case '^':
         if(!next_check(lex, '='))
         {
             tk->type = TK_XOR_ASSIGN;
             return 0;
         }
-	case '|':
-	case '!':
-        
-	case '-':
+        break;
+    case '-':
         if(!next_check(lex, '='))
         {
             tk->type = TK_MINUS_ASSIGN;
             return 0;
         }
+        break;
 	case '+':
         if(!next_check(lex, '='))
         {
             tk->type = TK_PLUS_ASSIGN;
             return 0;
         }
-        
-	case '(':
-	case ')':
+        break;
 	case '=':
         if(!next_check(lex, '='))
         {
             tk->type = TK_EQUAL;
             return 0;
         }
-	case ';':
-	case ':':
-	case '\\':
-	case ',':
+        break;
+	case '|':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_OR_ASSIGN;
+            return 0;
+        }
+        break;
 	case '%':
         if(!next_check(lex, '='))
         {
             tk->type = TK_MOD_ASSIGN;
             return 0;
         }
+        break;
+
+    case '#':
+	case '\'':
+	case '{':
+	case '}':
+	case '[':
+	case ']':
+	case '&':
+	case '!':
+	case '(':
+	case ')':
+	case ';':
+	case ':':
+	case '\\':
+	case ',':
 	case '.':
-	    tk->type = ch;
-	    break;
+        return 0;
 
 	default:
 	    if(match_test_integer(ch))
@@ -254,6 +266,7 @@ retry:
 		heap_string_free(&s);
 	    } else
 	    {
+    	tk->type = TK_INVALID;
 		printf("got %c, unhandled error\n", ch);
 		return 1; //error
 	    }
