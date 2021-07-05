@@ -1,4 +1,3 @@
-a = 1;
-if(1)
-	a = 2;
+a = "test";
+write(1, a, 4);
 exit(a);

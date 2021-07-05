@@ -14,6 +14,8 @@
 #define HASH_MAP_IMPL
 #include "rhd/hash_map.h"
 
+#include "compile.h"
+
 heap_string read_file( const char* filename )
 {
 	heap_string data = NULL;
@@ -33,7 +35,7 @@ heap_string read_file( const char* filename )
 // imported functions from other files
 void parse(heap_string, struct token**, int*);
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
-heap_string x86(struct ast_node*);
+int x86(struct ast_node *head, struct compile_context *ctx);
 
 int main( int argc, char** argv )
 {
@@ -68,30 +70,33 @@ int main( int argc, char** argv )
 
     struct linked_list *ast_list = NULL;
     struct ast_node *root = NULL;
+    struct compile_context ctx;
     int ast = generate_ast(tokens, num_tokens, &ast_list, &root, mode[0] != 'i' && mode[0] != 'e');
     if(!ast)
     {
         if(mode[0] == 'i' || mode[0] == 'e')
         {
             //generate native code
-            heap_string instr = x86(root);
-            heap_string data_buf = heap_string_new("hello world");
-            if(instr)
+            heap_string data_buf = NULL;
+            int compile_status = x86(root, &ctx);
+            if(!compile_status)
             {
                 //example rasm2 -a x86 -b 32 -d "B8 20 00 00 00 B9 08 00 00 00 F7 F9"
                 //printf("x86 opcodes:\n");
-                for(int i = 0; i < heap_string_size(&instr); ++i)
-                    printf("%02X ", instr[i] & 0xff);
+                for(int i = 0; i < heap_string_size(&ctx.instr); ++i)
+                    printf("%02X ", ctx.instr[i] & 0xff);
 				printf("\n");
 				
 				if(mode[0] == 'e')
 				{
 					//build elf
-					int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_path);
-					int ret = build_elf_image(instr, data_buf, "bin/example.elf");
+					int build_elf_image(struct compile_context* ctx, const char *binary_path);
+					int ret = build_elf_image(&ctx, "bin/example.elf");
 					printf("building elf image (return code = %d)\n", ret);
 				}
-                heap_string_free(&instr);
+    			heap_string_free(&ctx.data);
+                heap_string_free(&ctx.instr);
+    			linked_list_destroy(&ctx.relocations);
             }
             heap_string_free(&data_buf);
 		}

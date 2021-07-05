@@ -1,46 +1,10 @@
 #include "ast.h"
 #include "types.h"
 
-#include "rhd/heap_string.h"
+#include "std.h"
+#include "compile.h"
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
-#include "std.h"
-
-enum REGISTERS
-{
-    EAX,
-    EBX,
-    ECX,
-    EDX,
-    ESI,
-    ESP,
-    EBP,
-    EIP
-};
-
-struct variable
-{
-    int offset;
-};
-
-struct relocation
-{
-    int type; //FIXME: unused for now
-    int size;
-    int from;
-    int to;
-};
-
-struct compile_context
-{
-    struct hash_map *variables;
-    heap_string data;
-
-    struct linked_list *relocations;
-    
-	heap_string instr;
-    int localsize;
-};
 
 int instruction_position(struct compile_context *ctx)
 {
@@ -113,7 +77,33 @@ static int function_call_ident(struct compile_context *ctx, const char *function
         db(ctx, 0xcd); //int 0x80
         db(ctx, 0x80);
         return 0;
-	}
+	} else if(!strcmp(function_name, "write"))
+    {
+        
+        process(ctx, args[0]); //fd
+        //mov ebx,eax
+        db(ctx, 0x89);
+        db(ctx, 0xc3);
+        process(ctx, args[1]); //buf
+        //mov ecx,eax
+        db(ctx, 0x89);
+        db(ctx, 0xc1);
+        process(ctx, args[2]); //bufsz
+        //mov edx,eax
+        db(ctx, 0x89);
+        db(ctx, 0xc2);
+
+        //mov eax,4
+        db(ctx, 0xb8);
+        db(ctx, 0x04);
+        db(ctx, 0x00);
+        db(ctx, 0x00);
+        db(ctx, 0x00);
+        
+        db(ctx, 0xcd); //int 0x80
+        db(ctx, 0x80);
+        return 0;
+    }
 	return 1;
 }
 
@@ -499,23 +489,17 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     }
 }
 
-heap_string x86(struct ast_node *head)
+int x86(struct ast_node *head, struct compile_context *ctx)
 {
-    struct compile_context ctx = {
-		.instr = NULL,
-        .localsize = 0,
-        .variables = NULL,
-        .relocations = NULL
-    };
+    ctx->instr = NULL;
+    ctx->localsize = 0;
 
-    ctx.relocations = linked_list_create(struct relocation);
-    ctx.variables = hash_map_create(struct variable);
-    ctx.data = NULL;
+    ctx->relocations = linked_list_create(struct relocation);
+    ctx->variables = hash_map_create(struct variable);
+    ctx->data = NULL;
     
-    process(&ctx, head);
+    process(ctx, head);
 
-    heap_string_free(&ctx.data);
-    hash_map_destroy(&ctx.variables);
-    linked_list_destroy(&ctx.relocations);
-    return ctx.instr;
+    hash_map_destroy(&ctx->variables);
+    return 0;
 }

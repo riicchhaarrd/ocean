@@ -4,6 +4,8 @@
 #include <assert.h>
 #include <errno.h>
 
+#include "compile.h"
+#include "rhd/linked_list.h"
 #include "rhd/heap_string.h"
 #include "types.h"
 
@@ -40,6 +42,13 @@ static void pad(heap_string *s, u32 n)
 {
     for(int i = 0; i < n; ++i)
         heap_string_push(s, i & 0xff);
+}
+
+static int align_to(int pos, int align)
+{
+    if(pos % align == 0)
+        return pos; //no alignment needed
+    return align - (pos % align);
 }
 
 static void pad_align(heap_string *s, int align)
@@ -85,8 +94,10 @@ enum
     PT_LOAD = 0x1
 };
 
-int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_path)
+int build_elf_image(struct compile_context *ctx, const char *binary_path)
 {
+    heap_string instr = ctx->instr;
+    heap_string data_buf = ctx->data;
 	heap_string image = NULL;
     db(&image, 0x7f);
     db(&image, 'E');
@@ -114,6 +125,8 @@ int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_
     dw(&image, sizeof(struct phdr32)); //e_phentsize
 
     u32 num_program_headers = 2;
+    if(ctx->data)
+        ++num_program_headers;
     
     dw(&image, num_program_headers); //e_phnum //amount of program headers
     dw(&image, 0); //e_shentsize
@@ -129,9 +142,11 @@ int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_
     pad(&image, sizeof(struct phdr32));
     int text_hdr_offset = heap_string_size(&image);
     pad(&image, sizeof(struct phdr32));
-    int data_hdr_offset = heap_string_size(&image);
-    pad(&image, sizeof(struct phdr32));
 
+    int data_hdr_offset = heap_string_size(&image);
+    if(ctx->data)
+    	pad(&image, sizeof(struct phdr32));
+    
     int phdr_end = heap_string_size(&image);
     
     //get pointers now because image pointer is different than before after the reallocation
@@ -147,7 +162,6 @@ int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_
     null_hdr->p_align = ALIGNMENT;
     
 	u32 il = heap_string_size(&instr);
-    u32 dl = heap_string_size(&data_buf);
 
     size_t entry = heap_string_size(&image);
     *(uint32_t*)(image + entry_offset) = ORG + ALIGNMENT;
@@ -166,19 +180,50 @@ int build_elf_image(heap_string instr, heap_string data_buf, const char *binary_
     text_hdr->p_flags = PF_R | PF_X;
     text_hdr->p_align = ALIGNMENT;
     
-    //put .text/code section here
-	for(int i = 0; i < il; ++i)
-	{
-		db(&image, instr[i]);
-	}
-
-    /*
     //put .data section here
-	for(int i = 0; i < dl; ++i)
-	{
-		db(&image, data_buf[i]);
-	}
-    */
+    if(ctx->data)
+    {
+        int vaddr = ORG + ALIGNMENT + il;
+        vaddr += align_to(vaddr, ALIGNMENT);
+
+        //relocate everything to vaddr        
+        linked_list_reversed_foreach(ctx->relocations, struct relocation*, it,
+        {
+            *(u32*)&instr[it->from] = it->to + vaddr;
+            printf("relocating %d bytes from %02X to %02X\n", it->size, it->from, it->to + vaddr);
+        });
+        
+        for(int i = 0; i < il; ++i)
+        {
+            db(&image, instr[i]);
+        }
+        
+    	pad_align(&image, ALIGNMENT);
+        
+		u32 data_offset = heap_string_size(&image);
+    	u32 dl = heap_string_size(&data_buf);
+        
+        struct phdr32 *data_hdr = (struct phdr32*)&image[data_hdr_offset];
+        data_hdr->p_type = PT_LOAD;
+        data_hdr->p_offset = data_offset;
+        data_hdr->p_vaddr = vaddr;
+        data_hdr->p_paddr = vaddr;
+        data_hdr->p_filesz = dl;
+        data_hdr->p_memsz = dl;
+        data_hdr->p_flags = PF_R | PF_W;
+        data_hdr->p_align = ALIGNMENT;
+        
+        for(int i = 0; i < dl; ++i)
+        {
+            db(&image, data_buf[i]);
+        }
+    } else
+    {        
+        for(int i = 0; i < il; ++i)
+        {
+            db(&image, instr[i]);
+        }
+    }
     
     size_t filesize = heap_string_size(&image);
     FILE * fp = fopen(binary_path, "wb");
