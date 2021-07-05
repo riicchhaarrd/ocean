@@ -1,5 +1,6 @@
 #include "ast.h"
 #include "types.h"
+#include "token.h"
 
 #include "std.h"
 #include "compile.h"
@@ -225,7 +226,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 		{
             printf("variable '%s' doesn't exist.\n", n->identifier_data.name);
 		}
-        assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
+		assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
 
         //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
 
@@ -628,7 +629,7 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     //xor ebx,ebx
     db(ctx, 0x31);
     db(ctx, 0xdb);
-
+    
     db(ctx, 0x31); //xor eax,eax
     db(ctx, 0xc0);
     db(ctx, 0x40); //inc eax
