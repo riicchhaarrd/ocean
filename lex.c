@@ -98,7 +98,9 @@ static heap_string next_match(struct lexer *lex, int (*cmp)(int))
 
 static int match_test_ident(int ch)
 {
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_';
+    //Keep in mind this only works with numbers being non-first because there's a if before that checks for integers and this is called
+    //in a if else, otherwise check if it's only on the first character.
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || (ch >= '0' && ch <= '9');
 }
 
 static int match_test_string(int ch)
