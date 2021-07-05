@@ -171,6 +171,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         assert(off > 0);
         int op = (0xfe + off) % 256;
         set8(ctx, tmp + 1, op & 0xff);
+        //TODO: fix if the distance is more, use set32 and different opcode
         
         //db(ctx, 0xcc); //int3
     } break;
