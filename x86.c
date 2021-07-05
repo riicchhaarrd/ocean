@@ -103,7 +103,11 @@ static int function_call_ident(struct compile_context *ctx, const char *function
         db(ctx, 0xcd); //int 0x80
         db(ctx, 0x80);
         return 0;
-    }
+    } else if(!strcmp(function_name, "int3"))
+	{
+        db(ctx, 0xcc); //int3
+        return 0;
+	}
 	return 1;
 }
 
