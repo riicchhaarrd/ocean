@@ -397,6 +397,57 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             db(ctx, 0x31);
             db(ctx, 0xc8);
             break;
+        case '>':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jl <relative offset>
+            db(ctx, 0x7c);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+            
+        case '<':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jg <relative offset>
+            db(ctx, 0x7f);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
 
         default:
             printf("unhandled operator %c\n", n->bin_expr_data.operator);
