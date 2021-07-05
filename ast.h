@@ -113,6 +113,20 @@ struct ast_if_stmt
     struct ast_node *consequent;
 };
 
+struct ast_for_stmt
+{
+    struct ast_node *init;
+    struct ast_node *test;
+    struct ast_node *update;
+    struct ast_node *body;
+};
+
+struct ast_function_decl
+{
+    struct ast_node *body;
+    //TODO: implement properly
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -129,6 +143,8 @@ struct ast_node
         struct ast_identifier identifier_data;
         struct ast_function_call_expr call_expr_data;
         struct ast_if_stmt if_stmt_data;
+        struct ast_for_stmt for_stmt_data;
+        struct ast_function_decl func_decl_data;
     };
 };
 
