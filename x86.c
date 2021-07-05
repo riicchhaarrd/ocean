@@ -471,6 +471,32 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         switch(n->assignment_expr_data.operator)
         {
+        case TK_PLUS_ASSIGN:
+        {
+            //lea ebx,[ebp-4]
+            db(ctx, 0x8d);
+            db(ctx, 0x5d);
+            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
+            assert(var);
+            db(ctx, 0xfc - 4 * var->offset);
+            //add [ebx],eax
+            db(ctx, 0x01);
+            db(ctx, 0x03);
+        } break;
+        case TK_MINUS_ASSIGN:
+        {
+            //lea ebx,[ebp-4]
+            db(ctx, 0x8d);
+            db(ctx, 0x5d);
+            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
+            assert(var);
+            db(ctx, 0xfc - 4 * var->offset);
+            //sub [ebx],eax
+            db(ctx, 0x29);
+            db(ctx, 0x03);
+        } break;
+        //TODO: add div,mul,mod and other operators
+        
         case '=':
         {
             //lea ebx,[ebp-4]
