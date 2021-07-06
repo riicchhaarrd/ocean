@@ -229,7 +229,18 @@ int build_elf_image(struct compile_context *ctx, const char *binary_path)
             db(&image, data_buf[i]);
         }
     } else
-    {        
+    {
+        linked_list_reversed_foreach(ctx->relocations, struct relocation*, it,
+        {
+            if(it->type == RELOC_CODE)
+			{
+				*(u32*)&instr[it->from] = it->to + (ORG + ALIGNMENT);
+                printf("[CODE] relocating %d bytes from %02X to %02X\n", it->size, it->from, it->to + ORG);
+			} else
+			{
+                printf("unknown relocation type %d\n", it->type);
+			}
+        });
         for(int i = 0; i < il; ++i)
         {
             db(&image, instr[i]);
