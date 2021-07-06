@@ -206,6 +206,15 @@ static struct ast_node *factor(struct ast_context *ctx)
     } else if(!accept(ctx, TK_EOF))
     {
         n = push_node(ctx, AST_EXIT);
+    } else if(!accept(ctx, '&'))
+    {
+        n = push_node(ctx, AST_ADDRESS_OF);
+        n->address_of_data.value = expression(ctx);
+        if(!n->address_of_data.value)
+        {
+            printf("no expression within parentheses\n");
+            return NULL;
+        }
     } else
     {
 		printf("expected integer.. got %s (%d)\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type);

@@ -623,6 +623,12 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             
     } break;
 
+    case AST_ADDRESS_OF:
+    {
+        assert(n->address_of_data.value->type == AST_IDENTIFIER);
+        load_variable(ctx, EAX, 1, n->address_of_data.value->identifier_data.name, 0);
+    } break;
+
     case AST_FOR_STMT:
     {
         process(ctx, n->for_stmt_data.init);
