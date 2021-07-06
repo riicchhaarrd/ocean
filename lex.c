@@ -277,6 +277,10 @@ retry:
 		    tk->type = TK_IF;
         else if(!strcmp(s, "function"))
             tk->type = TK_FUNCTION;
+        else if(!strcmp(s, "return"))
+            tk->type = TK_RETURN;
+        else if(!strcmp(s, "break"))
+            tk->type = TK_BREAK;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);
 	    } else

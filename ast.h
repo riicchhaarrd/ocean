@@ -134,6 +134,11 @@ struct ast_program
     struct linked_list *body;   
 };
 
+struct ast_return_stmt
+{
+    struct ast_node *argument;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -153,6 +158,7 @@ struct ast_node
         struct ast_for_stmt for_stmt_data;
         struct ast_function_decl func_decl_data;
         struct ast_program program_data;
+        struct ast_return_stmt return_stmt_data;
     };
 };
 

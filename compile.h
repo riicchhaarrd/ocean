@@ -4,7 +4,7 @@
 #include "types.h"
 #include "rhd/heap_string.h"
 
-enum REGISTERS
+enum REGISTER
 {
     EAX,
     EBX,
@@ -19,12 +19,15 @@ enum REGISTERS
 struct variable
 {
     int offset;
+    int is_param;
 };
 
 struct function
 {
     int location;
     const char *name;
+    struct hash_map *variables;
+    int localsize;
 };
 
 enum RELOC_TYPE
@@ -44,13 +47,13 @@ struct relocation
 struct compile_context
 {
     u32 entry;
-    struct hash_map *variables;
     heap_string data;
 
     struct linked_list *relocations;
     struct linked_list *functions;
     
 	heap_string instr;
-    int localsize;
+
+    struct function *function;
 };
 #endif

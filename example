@@ -1,10 +1,11 @@
-function d()
+function add(a, b)
 {
-	write(1, "world\n", 7);
+    return a + b;
 }
 
 function main()
 {
 	write(1, "hello\n", 7);
-    d();
+    
+    exit(add(100, 23));
 }

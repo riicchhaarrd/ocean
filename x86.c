@@ -130,9 +130,21 @@ static int function_call_ident(struct compile_context *ctx, const char *function
 		return 1;
     }
 
+	for(int i = 0; i < numargs; ++i)
+    {
+		process( ctx, args[i] );
+        //push eax
+        db(ctx, 0x50);
+    }
+    
     int t = instruction_position(ctx);
     db(ctx, 0xe8);
     dd(ctx, pos - t - 5);
+
+    //add esp, 4
+    db(ctx, 0x83);
+    db(ctx, 0xc4);
+    db(ctx, numargs * 4);
     return 0;
 }
 
@@ -162,6 +174,55 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
     if(aligned == 0)
         return 32;
     return aligned;
+}
+
+static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, const char *variable_name, int allocate_space)
+{    
+    struct variable *var = hash_map_find(ctx->function->variables, variable_name);
+    if(!var && !allocate_space)
+    {
+        printf("variable '%s' doesn't exist.\n", variable_name);
+    }
+    assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
+    
+    //assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
+    //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
+
+    switch(reg)
+	{
+    case EAX:
+        assert(!as_pointer);
+		// mov eax,[ebp-4]
+		db( ctx, 0x8b );
+		db( ctx, 0x45 );
+        if(var->is_param)
+			db( ctx, 8 + var->offset * 4);
+        else
+			db( ctx, 0xfc - 4 * var->offset );
+        break;
+    case EBX:
+        assert(as_pointer);
+        // lea ebx,[ebp-4]
+        db( ctx, 0x8d );
+        db( ctx, 0x5d );
+        if(!allocate_space)
+		{
+            if(var->is_param)
+                db( ctx, 8 + var->offset * 4);
+            else
+                db( ctx, 0xfc - 4 * var->offset );
+		} else
+		{
+            db(ctx, 0xfc - 4 * ctx->function->localsize++);
+
+            struct variable tv = {
+                    .offset = ctx->function->localsize - 1,
+                    .is_param = 0
+            };
+            hash_map_insert(ctx->function->variables, variable_name, tv);
+		}
+		break;
+	}
 }
 
 static void process(struct compile_context *ctx, struct ast_node *n)
@@ -201,6 +262,21 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         //db(ctx, 0xcc); //int3
     } break;
 
+    case AST_RETURN_STMT:
+    {
+        struct ast_node *expr = n->return_stmt_data.argument;
+        process(ctx, expr);
+        
+		//mov esp,ebp
+        //pop ebp
+        db(ctx, 0x89);
+        db(ctx, 0xec);
+        db(ctx, 0x5d);
+        
+        //ret
+        db(ctx, 0xc3);   
+    } break;
+    
     //TODO: implement this properly
     case AST_FUNCTION_DECL:
     {
@@ -212,10 +288,23 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         int loc = instruction_position( ctx );
         struct function func = {
             .location = loc,
-            .name = n->func_decl_data.id->identifier_data.name
+            .name = n->func_decl_data.id->identifier_data.name,
+            .localsize = 0,
+            .variables = hash_map_create(struct variable)
         };
-        linked_list_prepend(ctx->functions, func);
-		
+        ctx->function = linked_list_prepend(ctx->functions, func);
+
+        for(int i = 0; i < n->func_decl_data.numparms; ++i)
+		{
+            struct ast_node *parm = n->func_decl_data.parameters[i];
+            assert(parm->type == AST_IDENTIFIER);
+
+            struct variable tv = {
+                    .offset = i,
+                    .is_param = 1
+            };
+            hash_map_insert(ctx->function->variables, parm->identifier_data.name, tv);
+		}
         assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
         int localsize = get_local_variable_size(ctx, n->func_decl_data.body);
         //push ebp
@@ -267,19 +356,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     
     case AST_IDENTIFIER:
 	{
-        struct variable *var = hash_map_find(ctx->variables, n->identifier_data.name);
-        if(!var)
-		{
-            printf("variable '%s' doesn't exist.\n", n->identifier_data.name);
-		}
-		assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
-
-        //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
-
-        //mov eax,[ebp-4]
-        db(ctx, 0x8b);
-        db(ctx, 0x45);
-        db(ctx, 0xfc - 4 * var->offset);
+        load_variable(ctx, EAX, 0, n->identifier_data.name, 0);
 	} break;
     case AST_LITERAL:        
         //mov eax,imm32
@@ -560,24 +637,14 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         {
         case TK_PLUS_ASSIGN:
         {
-            //lea ebx,[ebp-4]
-            db(ctx, 0x8d);
-            db(ctx, 0x5d);
-            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
-            assert(var);
-            db(ctx, 0xfc - 4 * var->offset);
+            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 0);
             //add [ebx],eax
             db(ctx, 0x01);
             db(ctx, 0x03);
         } break;
         case TK_MINUS_ASSIGN:
         {
-            //lea ebx,[ebp-4]
-            db(ctx, 0x8d);
-            db(ctx, 0x5d);
-            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
-            assert(var);
-            db(ctx, 0xfc - 4 * var->offset);
+            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 0);
             //sub [ebx],eax
             db(ctx, 0x29);
             db(ctx, 0x03);
@@ -586,29 +653,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         case '=':
         {
-            //lea ebx,[ebp-4]
-            db(ctx, 0x8d);
-            db(ctx, 0x5d);
-
-            //mov [ebp-4], eax
-            //db(ctx, 0x89);
-            //db(ctx, 0x85);
-            
-            struct variable *var = hash_map_find(ctx->variables, lhs->identifier_data.name);
-            if(!var)
-            {
-    	        //db(ctx, 0xfc - 4 * ctx->localsize++);
-            	db(ctx, 0xfc - 4 * ctx->localsize++);
-                
-                hash_map_insert(ctx->variables, lhs->identifier_data.name, (struct variable) {
-                        .offset = ctx->localsize - 1
-                });
-            }
-            else
-            {
-            	db(ctx, 0xfc - 4 * var->offset);
-	            //db(ctx, 0xfc - 4 * var->offset);
-            }
+            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 1);
             
             //db(ctx, 0xff);
             //db(ctx, 0xff);
@@ -661,13 +706,11 @@ int x86(struct ast_node *head, struct compile_context *ctx)
 {
     ctx->entry = 0xffffffff;
     ctx->instr = NULL;
-    ctx->localsize = 0;
-
+    ctx->function = NULL;
     ctx->relocations = linked_list_create(struct relocation);
-    ctx->variables = hash_map_create(struct variable);
     ctx->functions = linked_list_create(struct function);
     ctx->data = NULL;
-    
+
     //mov eax,imm32
     db(ctx, 0xb8);
     int from = instruction_position(ctx);
@@ -697,7 +740,5 @@ int x86(struct ast_node *head, struct compile_context *ctx)
         .type = RELOC_CODE
     };
     linked_list_prepend(ctx->relocations, reloc);
-
-    hash_map_destroy(&ctx->variables);
     return 0;
 }

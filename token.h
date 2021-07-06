@@ -33,6 +33,8 @@ enum TOKEN_TYPE
     TK_IF,
     TK_FOR,
     TK_FUNCTION,
+    TK_RETURN,
+    TK_BREAK,
     TK_LOOP,
     TK_EOF,
     TK_MAX,

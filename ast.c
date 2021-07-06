@@ -542,6 +542,18 @@ static struct ast_node *statement(struct ast_context *ctx)
 		for_node->for_stmt_data.update = update;
 		for_node->for_stmt_data.body = block_node;
 		return for_node;
+	} else if(!accept(ctx, TK_RETURN))
+	{
+        struct ast_node *ret_stmt = push_node(ctx, AST_RETURN_STMT);
+        ret_stmt->return_stmt_data.argument = expression(ctx);
+        if(!ret_stmt->return_stmt_data.argument)
+            return NULL;
+        if(accept(ctx, ';'))
+		{
+            printf("expected ; after return statement\n");
+			return NULL;
+		}
+		return ret_stmt;
 	}
 
 	struct ast_node *n = expression(ctx);
