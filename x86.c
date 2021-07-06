@@ -191,7 +191,8 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
     switch(reg)
 	{
     case EAX:
-        assert(!as_pointer);
+        if(!as_pointer)
+        {
 		// mov eax,[ebp-4]
 		db( ctx, 0x8b );
 		db( ctx, 0x45 );
@@ -199,7 +200,18 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
 			db( ctx, 8 + var->offset * 4);
         else
 			db( ctx, 0xfc - 4 * var->offset );
-        break;
+        } else
+		{
+            // lea eax,[ebp-4]
+            db( ctx, 0x8d );
+            db( ctx, 0x45 );
+            
+            if(var->is_param)
+                db( ctx, 8 + var->offset * 4);
+            else
+                db( ctx, 0xfc - 4 * var->offset );
+		}
+		break;
     case EBX:
         assert(as_pointer);
         // lea ebx,[ebp-4]
