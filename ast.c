@@ -281,16 +281,36 @@ static struct ast_node *add_and_subtract(struct ast_context *ctx)
     return lhs;
 }
 
-static struct ast_node *relational(struct ast_context *ctx)
+static struct ast_node *bitwise_shift(struct ast_context *ctx)
 {
     /* TODO: add more expressions */
     struct ast_node *lhs = add_and_subtract(ctx);
     if(!lhs)
         return NULL;
-    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL))
+    while(!accept(ctx, TK_LSHIFT) || !accept(ctx, TK_RSHIFT))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = add_and_subtract(ctx);
+        if(!rhs)
+        {
+			printf("error.... no rhs..\n");
+            return NULL;
+        }
+        lhs = bin_expr(ctx, operator, lhs, rhs);
+    }
+    return lhs;
+}
+
+static struct ast_node *relational(struct ast_context *ctx)
+{
+    /* TODO: add more expressions */
+    struct ast_node *lhs = bitwise_shift(ctx);
+    if(!lhs)
+        return NULL;
+    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL))
+    {
+        int operator = ctx->current_token->type;
+    	struct ast_node *rhs = bitwise_shift(ctx);
         if(!rhs)
         {
 			printf("error.... no rhs..\n");
