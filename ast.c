@@ -413,6 +413,15 @@ static void print_ast(struct ast_node *n, int depth)
         printf("exit\n");
         break;
 
+    case AST_PROGRAM:
+		linked_list_reversed_foreach( n->program_data.body, struct ast_node**, it, { print_ast( *it, depth + 1 ); } );
+        break;
+    case AST_FUNCTION_DECL:
+	{
+        printf("function '%s'\n", n->func_decl_data.id->identifier_data.name);
+        print_ast(n->func_decl_data.body, depth + 1);
+	} break;
+
     case AST_FUNCTION_CALL_EXPR:
     {
         struct ast_node **args = n->call_expr_data.arguments;
@@ -437,7 +446,7 @@ static void print_ast(struct ast_node *n, int depth)
     } break;
     
     default:
-		printf("unhandled type %d\n", n->type);
+		printf("unhandled type %s\n", AST_NODE_TYPE_to_string(n->type));
         break;
     }
 }
@@ -523,16 +532,16 @@ static struct ast_node *statement(struct ast_context *ctx)
             printf("expected ) after for\n");
 			return NULL;
 		}
-        //TODO: FIXME make it clear whether we expect { here or in the block function
-        struct ast_node *block_node = block(ctx);
-        if(!block_node)
-        	return NULL;
-        struct ast_node *for_node = push_node(ctx, AST_FOR_STMT);
-        for_node->for_stmt_data.init = init;
-        for_node->for_stmt_data.test = test;
-        for_node->for_stmt_data.update = update;
-        for_node->for_stmt_data.body = block_node;
-        return for_node;
+		// TODO: FIXME make it clear whether we expect { here or in the block function
+		struct ast_node* block_node = block( ctx );
+		if ( !block_node )
+			return NULL;
+		struct ast_node* for_node = push_node( ctx, AST_FOR_STMT );
+		for_node->for_stmt_data.init = init;
+		for_node->for_stmt_data.test = test;
+		for_node->for_stmt_data.update = update;
+		for_node->for_stmt_data.body = block_node;
+		return for_node;
 	}
 
 	struct ast_node *n = expression(ctx);
@@ -570,6 +579,53 @@ static struct ast_node *block(struct ast_context *ctx)
     return block_node;
 }
 
+static struct ast_node *program(struct ast_context *ctx)
+{
+    struct ast_node *program_node = push_node(ctx, AST_PROGRAM);
+    program_node->program_data.body = linked_list_create(void*);
+    
+    while(1)
+    {
+        if(!accept(ctx, TK_FUNCTION))
+        {
+            struct ast_node *decl = push_node(ctx, AST_FUNCTION_DECL);
+            decl->func_decl_data.numparms = 0;
+            if(accept(ctx, TK_IDENT))
+            {
+                printf("expected ident after function keyword\n");
+                return NULL;
+            }
+            struct ast_node *id = identifier(ctx, ctx->current_token->string);
+            decl->func_decl_data.id = id;
+            if(accept(ctx, '('))
+            {
+                printf("expected ( after function\n");
+                return NULL;
+            }
+            while(!accept(ctx, TK_IDENT))
+            {
+                printf("func parm %s\n", ctx->current_token->string);
+                struct ast_node *ident = identifier(ctx, ctx->current_token->string);
+                decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = ident;
+                if(accept(ctx, ','))
+                    break;
+            }
+            if(accept(ctx, ')'))
+            {
+                printf("expected ( after function\n");
+                return NULL;
+            }
+
+            struct ast_node *block_node = block(ctx);
+            if(!block_node)
+                return NULL;
+            decl->func_decl_data.body = block_node;
+            linked_list_prepend(program_node->program_data.body, decl);
+        } else break;
+    }
+    return program_node;
+}
+
 //TODO: fix head/root expression/statement flow
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool verbose)
 {
@@ -583,7 +639,7 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
     };
     
 	context.node_list = linked_list_create( struct ast_node );
-    context.root_node = block(&context);
+    context.root_node = program(&context);
     
     if(context.root_node)
     {

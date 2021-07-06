@@ -60,10 +60,21 @@ static void buf(struct compile_context *ctx, const char *buf, size_t len)
     }
 }
 
+int get_function_position(struct compile_context *ctx, const char *name)
+{    
+    linked_list_reversed_foreach(ctx->functions, struct function*, it,
+    {
+        if(!strcmp(it->name, name))
+            return it->location;
+    });
+    return -1;
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n);
 
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
+    printf("func call %s\n", function_name);
     if(!strcmp(function_name, "exit"))
 	{
         assert(numargs > 0);
@@ -109,7 +120,20 @@ static int function_call_ident(struct compile_context *ctx, const char *function
         db(ctx, 0xcc); //int3
         return 0;
 	}
-	return 1;
+
+    int pos = get_function_position(ctx, function_name);
+    if(pos == -1)
+    {
+        db(ctx, 0xcc);
+        db(ctx, 0xcc);
+        db(ctx, 0xcc);
+		return 1;
+    }
+
+    int t = instruction_position(ctx);
+    db(ctx, 0xe8);
+    dd(ctx, pos - t - 5);
+    return 0;
 }
 
 static int add_data(struct compile_context *ctx, void *data, u32 data_size)
@@ -180,6 +204,18 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     //TODO: implement this properly
     case AST_FUNCTION_DECL:
     {
+        if(!strcmp(n->func_decl_data.id->identifier_data.name, "main"))
+		{
+            //printf("set entry call to 0x%02X (%d)\n", instruction_position( ctx ), instruction_position( ctx ));
+			ctx->entry = instruction_position( ctx );
+		}
+        int loc = instruction_position( ctx );
+        struct function func = {
+            .location = loc,
+            .name = n->func_decl_data.id->identifier_data.name
+        };
+        linked_list_prepend(ctx->functions, func);
+		
         assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
         int localsize = get_local_variable_size(ctx, n->func_decl_data.body);
         //push ebp
@@ -208,6 +244,9 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         db(ctx, 0x89);
         db(ctx, 0xec);
         db(ctx, 0x5d);
+        
+        //ret
+        db(ctx, 0xc3);
     } break;
     
     case AST_BLOCK_STMT:
@@ -217,6 +256,13 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         {
             process(ctx, *it);
         });
+    } break;
+
+    case AST_PROGRAM:
+    {
+		linked_list_reversed_foreach( n->program_data.body, struct ast_node**, it, {
+                process(ctx, (*it));
+        } );
     } break;
     
     case AST_IDENTIFIER:
@@ -258,7 +304,8 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             struct relocation reloc = {
                 .from = from,
                 .to = to,
-                .size = sz
+                .size = sz,
+                .type = RELOC_DATA
             };
             linked_list_prepend(ctx->relocations, reloc);
         } break;
@@ -612,18 +659,23 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 
 int x86(struct ast_node *head, struct compile_context *ctx)
 {
+    ctx->entry = 0xffffffff;
     ctx->instr = NULL;
     ctx->localsize = 0;
 
     ctx->relocations = linked_list_create(struct relocation);
     ctx->variables = hash_map_create(struct variable);
+    ctx->functions = linked_list_create(struct function);
     ctx->data = NULL;
-
-    struct ast_node t = {
-        .type = AST_FUNCTION_DECL
-    };
-    t.func_decl_data.body = head;
-    process(ctx, &t);
+    
+    //mov eax,imm32
+    db(ctx, 0xb8);
+    int from = instruction_position(ctx);
+    dd(ctx, 0x0);
+    
+    //call eax
+    db(ctx, 0xff);
+    db(ctx, 0xd0);
     
     //insert linux syscall exit
     //xor ebx,ebx
@@ -635,6 +687,16 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     db(ctx, 0x40); //inc eax
     db(ctx, 0xcd); //int 0x80
     db(ctx, 0x80);
+    
+    process(ctx, head);
+    
+    struct relocation reloc = {
+        .from = from,
+        .to = ctx->entry,
+        .size = 4,
+        .type = RELOC_CODE
+    };
+    linked_list_prepend(ctx->relocations, reloc);
 
     hash_map_destroy(&ctx->variables);
     return 0;

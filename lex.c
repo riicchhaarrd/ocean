@@ -275,6 +275,8 @@ retry:
 		    tk->type = TK_FOR;
 		else if(!strcmp(s, "if"))
 		    tk->type = TK_IF;
+        else if(!strcmp(s, "function"))
+            tk->type = TK_FUNCTION;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);
 	    } else

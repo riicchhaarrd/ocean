@@ -123,8 +123,15 @@ struct ast_for_stmt
 
 struct ast_function_decl
 {
+    struct ast_node *id;
+    struct ast_node *parameters[32];
+    int numparms;
     struct ast_node *body;
-    //TODO: implement properly
+};
+
+struct ast_program
+{
+    struct linked_list *body;   
 };
 
 struct ast_node
@@ -145,6 +152,7 @@ struct ast_node
         struct ast_if_stmt if_stmt_data;
         struct ast_for_stmt for_stmt_data;
         struct ast_function_decl func_decl_data;
+        struct ast_program program_data;
     };
 };
 

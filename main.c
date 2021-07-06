@@ -100,7 +100,6 @@ int main( int argc, char** argv )
             }
             heap_string_free(&data_buf);
 		}
-    	linked_list_destroy(&root->block_stmt_data.body);
         root = NULL;
     	linked_list_destroy(&ast_list);
     }
