@@ -546,6 +546,20 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             db(ctx, 0x31);
             db(ctx, 0xc8);
             break;
+        case TK_LSHIFT:
+            db(ctx, 0xd3);
+            db(ctx, 0xf0);
+            break;
+        case TK_RSHIFT:
+            db(ctx, 0xd3);
+            db(ctx, 0xf8);
+            break;
+        case '%':
+            db(ctx, 0xf7);
+            db(ctx, 0xf9);
+            db(ctx, 0x89);
+            db(ctx, 0xd0);
+            break;
         case '>':
             //cmp eax,ecx
             db(ctx, 0x39);
