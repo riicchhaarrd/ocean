@@ -7,13 +7,13 @@
 enum REGISTER
 {
     EAX,
-    EBX,
     ECX,
     EDX,
-    ESI,
+    EBX,
     ESP,
     EBP,
-    EIP
+    ESI,
+    EDI
 };
 
 struct variable
