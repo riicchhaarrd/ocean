@@ -117,6 +117,7 @@ static int function_call_ident(struct compile_context *ctx, const char *function
         return 0;
     } else if(!strcmp(function_name, "int3"))
 	{
+        if(opt_flags & OPT_DEBUG)
         db(ctx, 0xcc); //int3
         return 0;
 	}

@@ -5,6 +5,14 @@
 #include <stdio.h>
 #include <assert.h>
 
+enum OPT_FLAG
+{
+	OPT_VERBOSE,
+    OPT_DEBUG
+};
+
+extern int opt_flags;
+
 static void FIXME_FN( const char* filename, int linenumber, const char* fmt, ... )
 {
     //TODO: FIXME unsafe reentry etc
