@@ -68,6 +68,15 @@ static struct ast_node *unary_expr(struct ast_context *ctx, int op, bool prefix,
     return n;
 }
 
+static struct ast_node *array_subscript_expr(struct ast_context *ctx, struct ast_node *lhs, struct ast_node *rhs)
+{
+    struct ast_node *n = push_node(ctx, AST_MEMBER_EXPR);
+    n->member_expr_data.computed = 0;
+    n->member_expr_data.object = lhs;
+    n->member_expr_data.property = rhs;
+    return n;
+}
+
 static struct ast_node *bin_expr(struct ast_context *ctx, int op, struct ast_node *lhs, struct ast_node *rhs)
 {
     struct ast_node *n = push_node(ctx, AST_BIN_EXPR);
@@ -79,11 +88,13 @@ static struct ast_node *bin_expr(struct ast_context *ctx, int op, struct ast_nod
 
 static struct ast_node *assignment_expr(struct ast_context *ctx, int op, struct ast_node *lhs, struct ast_node *rhs)
 {
+    /*
     if(lhs->type != AST_IDENTIFIER)
 	{
-        printf("expected lhs to be a identifier\n");
+        printf("expected lhs to be a identifier got %s\n", AST_NODE_TYPE_to_string(lhs->type));
 		return NULL;
 	}
+    */
 	struct ast_node *n = push_node(ctx, AST_ASSIGNMENT_EXPR);
     n->bin_expr_data.operator = op;
     n->bin_expr_data.lhs = lhs;
@@ -125,17 +136,7 @@ static struct ast_node *factor(struct ast_context *ctx)
         struct ast_node *ident = identifier(ctx, ctx->current_token->string);
         int operator = 0;
         struct ast_node *rhs = NULL;
-        if(!accept(ctx, '='))
-        {
-        	operator = ctx->current_token->type;
-            rhs = expression(ctx);
-            if(!rhs)
-            {
-                printf("expected rhs... for assignment\n");
-                return NULL;
-            }
-        	return assignment_expr(ctx, operator, ident, rhs);
-		} else if(!accept(ctx, '('))
+        if(!accept(ctx, '('))
 		{
 			//function call
             n = push_node(ctx, AST_FUNCTION_CALL_EXPR);
@@ -222,6 +223,42 @@ static struct ast_node *factor(struct ast_context *ctx)
     return n;
 }
 
+static struct ast_node *array_subscripting(struct ast_context *ctx)
+{
+    struct ast_node *lhs = factor(ctx);
+    if(!lhs)
+        return NULL;
+    
+    while(!accept(ctx, '['))
+    {
+    	struct ast_node *rhs = factor(ctx);
+        if(!rhs)
+            return NULL;
+        lhs = array_subscript_expr(ctx, lhs, rhs);
+        if(accept(ctx, ']'))
+		{
+            printf("expected closing bracket ]\n");
+			return NULL;
+		}
+	}
+    return lhs;
+}
+
+static struct ast_node *regular_assignment(struct ast_context *ctx)
+{
+    struct ast_node *lhs = array_subscripting(ctx);
+    if(!lhs) return NULL;
+    
+    while(!accept(ctx, '='))
+    {
+    	struct ast_node *rhs = array_subscripting(ctx);
+        if(!rhs)
+            return NULL;
+        lhs = assignment_expr(ctx, '=', lhs, rhs);
+    }
+    return lhs;
+}
+
 static struct ast_node *term(struct ast_context *ctx)
 {
     struct ast_node *lhs = NULL;
@@ -231,7 +268,7 @@ static struct ast_node *term(struct ast_context *ctx)
         ++negate;
     */
 
-    lhs = factor(ctx);
+    lhs = regular_assignment(ctx);
     if(!lhs)
     {
         printf("no term found\n");
@@ -245,7 +282,7 @@ static struct ast_node *term(struct ast_context *ctx)
           || !accept(ctx, TK_DIVIDE_ASSIGN) || !accept(ctx, TK_MULTIPLY_ASSIGN) || !accept(ctx, TK_MOD_ASSIGN))
     {
         int operator = ctx->current_token->type;
-    	struct ast_node *rhs = factor(ctx);
+    	struct ast_node *rhs = regular_assignment(ctx);
         if(!rhs)
         {
 			printf("error.... no rhs..\n");
@@ -473,9 +510,18 @@ static void print_ast(struct ast_node *n, int depth)
         print_ast(test, depth + 1);
         print_ast(consequent, depth + 1);
     } break;
+
+    case AST_MEMBER_EXPR:
+    {
+        printf("member expression\n");
+        printf("object:\n");
+        print_ast(n->member_expr_data.object, depth + 1);
+        printf("property:\n");
+        print_ast(n->member_expr_data.property, depth + 1);
+    } break;
     
     default:
-		printf("unhandled type %s\n", AST_NODE_TYPE_to_string(n->type));
+		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
         break;
     }
 }

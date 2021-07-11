@@ -144,6 +144,13 @@ struct ast_address_of
     struct ast_node *value;
 };
 
+struct ast_member_expr
+{
+    struct ast_node *object;
+    struct ast_node *property;
+    int computed; //unused atm
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -165,6 +172,7 @@ struct ast_node
         struct ast_program program_data;
         struct ast_return_stmt return_stmt_data;
         struct ast_address_of address_of_data;
+        struct ast_member_expr member_expr_data;
     };
 };
 

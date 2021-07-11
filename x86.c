@@ -175,9 +175,77 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
         return 32;
     return aligned;
 }
+static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *variable_node, int allocate_space);
 
-static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, const char *variable_name, int allocate_space)
-{    
+static void load_member_expression(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *n)
+{
+    //object is probably identifier or something
+    //TODO: FIXME if it's not an identifier, pass a flag or something recursively whilst loading expressions so they always get loaded as pointer with lea
+    //printf("object type = %s\n", AST_NODE_TYPE_to_string(n->member_expr_data.object->type));
+    assert(n->member_expr_data.object->type == AST_IDENTIFIER);
+    load_variable(ctx, EBX, 0, n->member_expr_data.object, 0);
+    //load_variable(ctx, EBX, 1, n->member_expr_data.object, 0);
+    
+    //process(ctx, n->member_expr_data.object);
+    //var should now be in EBX as pointer
+    
+    //expression type
+    //printf("property type = %s\n", AST_NODE_TYPE_to_string(n->member_expr_data.property->type));
+    process(ctx, n->member_expr_data.property);
+
+    switch(reg)
+    {
+    case EAX:        
+        if(as_pointer)
+        {
+            //lea eax, [ebx+eax]
+            db(ctx, 0x8d);
+            db(ctx, 0x03);
+        } else
+        {
+            // mov eax, [ebx+eax]
+            db( ctx, 0x8b );
+            db( ctx, 0x04 );
+            db( ctx, 0x03 );
+        }
+	break;
+
+	case EBX:
+        if(as_pointer)
+        {
+            //add ebx, eax
+            db(ctx, 0x01);
+            db(ctx, 0xc3);
+            
+            //lea ebx, [ebx]
+            db(ctx, 0x8d);
+            db(ctx, 0x1b);
+        } else
+        {
+            // mov ebx, [ebx+eax]
+            db( ctx, 0x8b );
+            db( ctx, 0x1c );
+            db( ctx, 0x03 );
+        }
+		break;
+
+    default:
+        perror("unhandled register... load_member_expression\n");
+        break;
+	}
+}
+
+static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *variable_node, int allocate_space)
+{
+	assert(variable_node->type == AST_IDENTIFIER || variable_node->type == AST_MEMBER_EXPR);
+    
+    if(variable_node->type == AST_MEMBER_EXPR)
+	{
+        load_member_expression(ctx, reg, as_pointer, variable_node);
+        return;
+	}
+	const char *variable_name = variable_node->identifier_data.name;
+    
     struct variable *var = hash_map_find(ctx->function->variables, variable_name);
     if(!var && !allocate_space)
     {
@@ -213,10 +281,11 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
 		}
 		break;
     case EBX:
-        assert(as_pointer);
-        // lea ebx,[ebp-4]
-        db( ctx, 0x8d );
-        db( ctx, 0x5d );
+        if(as_pointer)
+        {
+            // lea ebx,[ebp-4]
+            db( ctx, 0x8d );
+            db( ctx, 0x5d );
         if(!allocate_space || var)
 		{
             if(var->is_param)
@@ -224,17 +293,35 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
             else
                 db( ctx, 0xfc - 4 * var->offset );
 		} else
-		{
-            db(ctx, 0xfc - 4 * ctx->function->localsize++);
+            {
+                db(ctx, 0xfc - 4 * ctx->function->localsize++);
 
-            struct variable tv = {
-                    .offset = ctx->function->localsize - 1,
-                    .is_param = 0
-            };
-            hash_map_insert(ctx->function->variables, variable_name, tv);
+                struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0 };
+                hash_map_insert( ctx->function->variables, variable_name, tv );
+            }
+		} else
+		{
+            assert(!allocate_space);
+			// mov ebx,[ebp-4]
+            db( ctx, 0x8b );
+            db( ctx, 0x5d );
+            if(var->is_param)
+                db( ctx, 8 + var->offset * 4);
+            else
+                db( ctx, 0xfc - 4 * var->offset );
 		}
 		break;
 	}
+}
+
+static void push(struct compile_context *ctx, enum REGISTER reg)
+{
+    db(ctx, 0x50 + reg);
+}
+
+static void pop(struct compile_context *ctx, enum REGISTER reg)
+{
+    db(ctx, 0x58 + reg);
 }
 
 static void process(struct compile_context *ctx, struct ast_node *n)
@@ -368,7 +455,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     
     case AST_IDENTIFIER:
 	{
-        load_variable(ctx, EAX, 0, n->identifier_data.name, 0);
+        load_variable(ctx, EAX, 0, n, 0);
 	} break;
     case AST_LITERAL:        
         //mov eax,imm32
@@ -626,7 +713,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     case AST_ADDRESS_OF:
     {
         assert(n->address_of_data.value->type == AST_IDENTIFIER);
-        load_variable(ctx, EAX, 1, n->address_of_data.value->identifier_data.name, 0);
+        load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
     } break;
 
     case AST_FOR_STMT:
@@ -659,24 +746,28 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     case AST_ASSIGNMENT_EXPR:
     {
         struct ast_node *lhs = n->assignment_expr_data.lhs;
-        assert(lhs->type == AST_IDENTIFIER);
-        
         struct ast_node *rhs = n->assignment_expr_data.rhs;
+
         process(ctx, rhs);
         //we should now have our result in eax
-        
+    
         switch(n->assignment_expr_data.operator)
         {
         case TK_PLUS_ASSIGN:
         {
-            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 0);
+            push(ctx, EAX);
+            load_variable(ctx, EBX, 1, lhs, 0);
+            pop(ctx, EAX);
+            
             //add [ebx],eax
             db(ctx, 0x01);
             db(ctx, 0x03);
         } break;
         case TK_MINUS_ASSIGN:
         {
-            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 0);
+            push(ctx, EAX);
+            load_variable(ctx, EBX, 1, lhs, 0);
+            pop(ctx, EAX);
             //sub [ebx],eax
             db(ctx, 0x29);
             db(ctx, 0x03);
@@ -685,7 +776,9 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         case '=':
         {
-            load_variable(ctx, EBX, 1, lhs->identifier_data.name, 1);
+            push(ctx, EAX);
+            load_variable(ctx, EBX, 1, lhs, 1);
+            pop(ctx, EAX);
             
             //db(ctx, 0xff);
             //db(ctx, 0xff);
@@ -702,6 +795,11 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             printf("unhandled assignment operator\n");
             break;
         }
+    } break;
+
+    case AST_MEMBER_EXPR:
+    {
+        load_variable(ctx, EAX, 0, n, 0);
     } break;
 
     case AST_FUNCTION_CALL_EXPR:
@@ -730,6 +828,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     
     default:
 		printf("unhandled ast node type %d\n", n->type);
+        exit(-1);
         break;
     }
 }
