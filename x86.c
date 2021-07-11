@@ -183,7 +183,7 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
     {
         printf("variable '%s' doesn't exist.\n", variable_name);
     }
-    assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
+    //assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
     
     //assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
     //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
@@ -217,7 +217,7 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
         // lea ebx,[ebp-4]
         db( ctx, 0x8d );
         db( ctx, 0x5d );
-        if(!allocate_space)
+        if(!allocate_space || var)
 		{
             if(var->is_param)
                 db( ctx, 8 + var->offset * 4);
