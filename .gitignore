@@ -1,1 +1,5 @@
 TAGS
+
+.ccls-cache/
+
+bin/
