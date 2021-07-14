@@ -529,7 +529,34 @@ static void print_ast(struct ast_node *n, int depth)
 static struct ast_node *block(struct ast_context *ctx);
 static struct ast_node *statement(struct ast_context *ctx)
 {
-    if(!accept(ctx, TK_IF))
+    if(!accept(ctx, TK_T_CHAR) || !accept(ctx, TK_T_SHORT) || !accept(ctx, TK_T_INT) || !accept(ctx, TK_T_FLOAT) || !accept(ctx, TK_T_DOUBLE) || !accept(ctx, TK_T_NUMBER))
+    {
+        int data_type = ctx->current_token->type - TK_T_CHAR;
+        if(accept(ctx, TK_IDENT))
+        {
+            printf("expected identifier for type declaration\n");
+            return NULL;
+        }
+        struct ast_node *id = identifier(ctx, ctx->current_token->string);
+        if(!accept(ctx, '['))
+		{
+            struct ast_node *array_size_node = expression(ctx);
+            if(accept(ctx, ']'))
+			{
+                printf("expected ] after array type declaration\n");
+				return NULL;
+			}
+		}
+        if(accept(ctx, ';'))
+		{
+            printf("expected ; after variable type declaration\n");
+            return NULL;
+		}
+		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
+        decl_node->variable_decl_data.id = id;
+        decl_node->variable_decl_data.type = data_type;
+        return decl_node;
+    } else if(!accept(ctx, TK_IF))
 	{
         if(accept(ctx, '('))
 		{

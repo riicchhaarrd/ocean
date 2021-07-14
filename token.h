@@ -26,6 +26,13 @@ enum TOKEN_TYPE
 
     TK_GEQUAL,
     TK_LEQUAL,
+
+    TK_T_CHAR,
+    TK_T_SHORT,
+    TK_T_INT,
+    TK_T_FLOAT,
+    TK_T_DOUBLE,
+    TK_T_NUMBER,
     
     TK_LSHIFT,
     TK_RSHIFT,

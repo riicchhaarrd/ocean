@@ -2,7 +2,7 @@
 #define AST_H
 #include <stdio.h>
 #include <stdbool.h>
-
+#include "data_type.h"
 
 #define ENUM_BEGIN(typ) enum typ {
 #define ENUM(nam) nam
@@ -151,6 +151,13 @@ struct ast_member_expr
     int computed; //unused atm
 };
 
+struct ast_variable_decl
+{
+    enum DATA_TYPE data_type;
+    struct ast_node *id;
+    int size;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -173,6 +180,7 @@ struct ast_node
         struct ast_return_stmt return_stmt_data;
         struct ast_address_of address_of_data;
         struct ast_member_expr member_expr_data;
+        struct ast_variable_decl variable_decl_data;
     };
 };
 

@@ -281,6 +281,16 @@ retry:
             tk->type = TK_RETURN;
         else if(!strcmp(s, "break"))
             tk->type = TK_BREAK;
+        else if(!strcmp(s, "char"))
+            tk->type = TK_T_CHAR;
+        else if(!strcmp(s, "short"))
+            tk->type = TK_T_SHORT;
+        else if(!strcmp(s, "int"))
+            tk->type = TK_T_INT;
+        else if(!strcmp(s, "float"))
+            tk->type = TK_T_FLOAT;
+        else if(!strcmp(s, "double"))
+            tk->type = TK_T_DOUBLE;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);
 	    } else

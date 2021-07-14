@@ -3,6 +3,7 @@
 
 #include "types.h"
 #include "rhd/heap_string.h"
+#include "data_type.h"
 
 enum REGISTER
 {
