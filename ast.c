@@ -532,6 +532,7 @@ static struct ast_node *statement(struct ast_context *ctx)
     if(!accept(ctx, TK_T_CHAR) || !accept(ctx, TK_T_SHORT) || !accept(ctx, TK_T_INT) || !accept(ctx, TK_T_FLOAT) || !accept(ctx, TK_T_DOUBLE) || !accept(ctx, TK_T_NUMBER))
     {
         int data_type = ctx->current_token->type - TK_T_CHAR;
+        int data_count = 1;
         if(accept(ctx, TK_IDENT))
         {
             printf("expected identifier for type declaration\n");
@@ -540,8 +541,18 @@ static struct ast_node *statement(struct ast_context *ctx)
         struct ast_node *id = identifier(ctx, ctx->current_token->string);
         if(!accept(ctx, '['))
 		{
-            struct ast_node *array_size_node = expression(ctx);
-            if(accept(ctx, ']'))
+            if(accept(ctx, TK_INTEGER))
+			{
+                printf("expected constant int array size\n");
+                return NULL;
+			}
+            data_count = ctx->current_token->integer;
+            if(data_count == 0)
+			{
+                printf("array size can't be zero\n");
+                return NULL;
+			}
+			if(accept(ctx, ']'))
 			{
                 printf("expected ] after array type declaration\n");
 				return NULL;
@@ -554,7 +565,8 @@ static struct ast_node *statement(struct ast_context *ctx)
 		}
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
         decl_node->variable_decl_data.id = id;
-        decl_node->variable_decl_data.type = data_type;
+        decl_node->variable_decl_data.data_type = data_type;
+        decl_node->variable_decl_data.size = data_count;
         return decl_node;
     } else if(!accept(ctx, TK_IF))
 	{

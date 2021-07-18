@@ -1,0 +1,1 @@
+./build && ./ocean $1 e -d && gdb bin/example.elf -ex layout\ asm -ex tui\ reg\ all

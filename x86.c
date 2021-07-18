@@ -74,7 +74,7 @@ static void process(struct compile_context *ctx, struct ast_node *n);
 
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
-    printf("func call %s\n", function_name);
+    //printf("func call %s\n", function_name);
     if(!strcmp(function_name, "exit"))
 	{
         assert(numargs > 0);
@@ -142,11 +142,14 @@ static int function_call_ident(struct compile_context *ctx, const char *function
     db(ctx, 0xe8);
     dd(ctx, pos - t - 5);
 
-    //add esp, 4
-    db(ctx, 0x83);
-    db(ctx, 0xc4);
-    db(ctx, numargs * 4);
-    return 0;
+    if(numargs > 0)
+	{
+		// add esp, 4
+		db( ctx, 0x83 );
+		db( ctx, 0xc4 );
+		db( ctx, numargs * 4 );
+	}
+	return 0;
 }
 
 static int add_data(struct compile_context *ctx, void *data, u32 data_size)
@@ -154,6 +157,20 @@ static int add_data(struct compile_context *ctx, void *data, u32 data_size)
     int curpos = heap_string_size(&ctx->data);
     heap_string_appendn(&ctx->data, data, data_size);
 	return curpos;
+}
+
+static int get_data_type_size(int type)
+{
+    switch(type)
+	{
+    case DT_CHAR: return 1;
+    case DT_SHORT: return 2;
+    case DT_INT: return 4;
+    case DT_NUMBER: return 4;
+    case DT_FLOAT: return 4;
+    case DT_DOUBLE: return 4;
+	}
+    return 0;
 }
 
 static int get_local_variable_size(struct compile_context *ctx, struct ast_node *n)
@@ -164,10 +181,16 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
     //TODO: fix this and make it change depending on variable type declaration instead of assignment
     linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
     {
+        if((*it)->type == AST_VARIABLE_DECL)
+		{
+            total += get_data_type_size((*it)->variable_decl_data.data_type) * (*it)->variable_decl_data.size;
+		}
+#if 0
         if((*it)->type == AST_ASSIGNMENT_EXPR && (*it)->assignment_expr_data.operator == '=')
         {
             total += 4; //FIXME: shouldn't always be 4 bytes
         }
+#endif
     });
     //align to 32
     //TODO: fix this make sure the esp value is aligned instead
@@ -219,8 +242,8 @@ static void load_member_expression(struct compile_context *ctx, enum REGISTER re
             db(ctx, 0xc3);
             
             //lea ebx, [ebx]
-            db(ctx, 0x8d);
-            db(ctx, 0x1b);
+            //db(ctx, 0x8d);
+            //db(ctx, 0x1b);
         } else
         {
             // mov ebx, [ebx+eax]
@@ -287,18 +310,20 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
             // lea ebx,[ebp-4]
             db( ctx, 0x8d );
             db( ctx, 0x5d );
-        if(!allocate_space || var)
-		{
-            if(var->is_param)
-                db( ctx, 8 + var->offset * 4);
-            else
-                db( ctx, 0xfc - 4 * var->offset );
-		} else
+            if(!allocate_space || var)
             {
-                db(ctx, 0xfc - 4 * ctx->function->localsize++);
+                if(var->is_param)
+                    db( ctx, 8 + var->offset * 4);
+                else
+                    db( ctx, 0xfc - 4 * var->offset );
+            } else
+            {
+                assert(var);
+                //perror("this has been moved to variable declaration..");
+                //db(ctx, 0xfc - 4 * ctx->function->localsize++);
 
-                struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0 };
-                hash_map_insert( ctx->function->variables, variable_name, tv );
+                //struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0 };
+                //hash_map_insert( ctx->function->variables, variable_name, tv );
             }
 		} else
 		{
@@ -801,6 +826,28 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     case AST_MEMBER_EXPR:
     {
         load_variable(ctx, EAX, 0, n, 0);
+    } break;
+
+    case AST_VARIABLE_DECL:
+    {
+        int data_type = n->variable_decl_data.data_type;
+        struct ast_node *id = n->variable_decl_data.id;
+        assert(id->type == AST_IDENTIFIER);
+        int size = n->variable_decl_data.size;
+        const char *variable_name = id->identifier_data.name;
+
+        printf("data_type = %d, identifier = %s, size = %d, total_size = %d\n", data_type, id->identifier_data.name, size, get_data_type_size(data_type) * size);
+
+        /*
+        //lea ebx,[ebp-4]
+        db( ctx, 0x8d );
+        db( ctx, 0x5d );
+        
+        db(ctx, 0xfc - 4 * ctx->function->localsize++);
+        */
+        ++ctx->function->localsize;
+        struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0 };
+        hash_map_insert( ctx->function->variables, variable_name, tv );
     } break;
 
     case AST_FUNCTION_CALL_EXPR:

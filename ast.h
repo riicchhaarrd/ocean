@@ -153,7 +153,7 @@ struct ast_member_expr
 
 struct ast_variable_decl
 {
-    enum DATA_TYPE data_type;
+    int data_type;
     struct ast_node *id;
     int size;
 };
