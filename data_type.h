@@ -11,4 +11,8 @@ enum DATA_TYPE
     DT_NUMBER,
 };
 
+static const char* data_type_strings[] = {
+    "char", "short", "int", "float", "double", "number", NULL
+};
+
 #endif

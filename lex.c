@@ -241,9 +241,32 @@ retry:
             return 0;
         }
         break;
+        
+	case '\'':
+    {
+        tk->type = TK_INTEGER;
+        if(!next_check(lex, '"'))
+        {
+            perror("error: empty character constant\n");
+            return 1;
+        }
+        int character_constant = next(lex);
+        if(character_constant == -1 || character_constant == 0)
+		{
+            printf("unexpected end of file\n");
+			return 1;
+		}
+		assert(character_constant > 0 && character_constant <= 0xff);
+        tk->integer = character_constant; //TODO: add support for \0 \hex and other stuff
+        if(next_check(lex, '\''))
+        {
+            printf("expecting closing ' for character constant\n");
+            //expected closing "
+            return 1;
+        }
+    } break;
 
     case '#':
-	case '\'':
 	case '{':
 	case '}':
 	case '[':

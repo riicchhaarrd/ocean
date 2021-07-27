@@ -21,6 +21,8 @@ struct variable
 {
     int offset;
     int is_param;
+    int data_type;
+    int data_size;
 };
 
 struct function

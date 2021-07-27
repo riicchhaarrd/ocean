@@ -261,6 +261,11 @@ static void load_member_expression(struct compile_context *ctx, enum REGISTER re
 
 static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *variable_node, int allocate_space)
 {
+	// allocate_space is deprecated, we're using declaration of variables now e.g
+	// char a;
+	// then assigning them and loading the variables afterwards..
+	// a = 0xff;
+	// my_func(a);
 	assert(variable_node->type == AST_IDENTIFIER || variable_node->type == AST_MEMBER_EXPR);
     
     if(variable_node->type == AST_MEMBER_EXPR)
@@ -271,11 +276,20 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
 	const char *variable_name = variable_node->identifier_data.name;
     
     struct variable *var = hash_map_find(ctx->function->variables, variable_name);
-    if(!var && !allocate_space)
+    if(!var)
     {
         printf("variable '%s' doesn't exist.\n", variable_name);
     }
-    //assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
+    assert(var);
+    int variable_data_type = var->data_type;
+    int variable_data_size = var->data_size;
+    if(variable_data_size > 1)
+	{
+        //if size is more than just a single value, load it as a pointer
+        //implicitly converting [] to *
+        as_pointer = 1;
+	}
+	//assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
     
     //assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
     //FIXME: don't assume that it's only integer values.. lookup the variable and check the type and handle it accordingly
@@ -426,7 +440,9 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 
             struct variable tv = {
                     .offset = i,
-                    .is_param = 1
+                    .is_param = 1,
+                    .data_type = DT_INT, //FIXME: hardcoded int for now,
+                    .data_size = 1 //FIXME: maybe more than 1 in size..
             };
             hash_map_insert(ctx->function->variables, parm->identifier_data.name, tv);
 		}
@@ -846,7 +862,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         db(ctx, 0xfc - 4 * ctx->function->localsize++);
         */
         ++ctx->function->localsize;
-        struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0 };
+        struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0, .data_type = data_type, .data_size = size };
         hash_map_insert( ctx->function->variables, variable_name, tv );
     } break;
 

@@ -519,8 +519,16 @@ static void print_ast(struct ast_node *n, int depth)
         printf("property:\n");
         print_ast(n->member_expr_data.property, depth + 1);
     } break;
-    
-    default:
+
+    case AST_VARIABLE_DECL:
+	{
+        printf("variable declaration\n");
+        printf("data_type = '%s', size = %d\n", data_type_strings[n->variable_decl_data.data_type], n->variable_decl_data.size);
+        printf("id:\n");
+        print_ast(n->variable_decl_data.id, depth + 1);
+	} break;
+
+	default:
 		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
         break;
     }
