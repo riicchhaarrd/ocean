@@ -13,6 +13,21 @@ enum OPT_FLAG
 
 extern int opt_flags;
 
+static int debug_printf_r(int lineno, const char *filename, const char *fmt, ...)
+{
+	char buffer[512] = { 0 };
+    va_list va;
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    printf("[%s:%d] %s", filename, lineno, buffer);
+    va_end(va);
+    return 0;
+}
+
+#define debug_printf(fmt, ...) debug_printf_r(__LINE__, __FILE__, fmt, ## __VA_ARGS__)
+#ifndef COUNT_OF
+#define COUNT_OF(x) (sizeof((x)) / sizeof((x)[0]))
+#endif
 static void FIXME_FN( const char* filename, int linenumber, const char* fmt, ... )
 {
     //TODO: FIXME unsafe reentry etc

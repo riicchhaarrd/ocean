@@ -158,11 +158,17 @@ struct ast_variable_decl
     int size;
 };
 
+struct ast_dereference
+{
+    struct ast_node *value;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
 	enum AST_NODE_TYPE type;
     int start, end;
+    int rvalue;
     union
     {
         struct ast_block_stmt block_stmt_data;
@@ -181,6 +187,7 @@ struct ast_node
         struct ast_address_of address_of_data;
         struct ast_member_expr member_expr_data;
         struct ast_variable_decl variable_decl_data;
+        struct ast_dereference dereference_data;
     };
 };
 
