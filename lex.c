@@ -316,6 +316,8 @@ retry:
             tk->type = TK_T_DOUBLE;
         else if(!strcmp(s, "void"))
             tk->type = TK_T_VOID;
+        else if(!strcmp(s, "sizeof"))
+            tk->type = TK_T_SIZEOF;
         else if(!strcmp(s, "__emit"))
             tk->type = TK_EMIT;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);

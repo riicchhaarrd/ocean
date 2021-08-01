@@ -133,6 +133,29 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
     return n;
 }
 
+static struct ast_node *type_declaration(struct ast_context *ctx)
+{
+    struct ast_node *data_type_node = NULL;
+	if ( !accept( ctx, TK_T_CHAR ) || !accept( ctx, TK_T_SHORT ) || !accept( ctx, TK_T_INT ) ||
+		 !accept( ctx, TK_T_FLOAT ) || !accept( ctx, TK_T_DOUBLE ) || !accept( ctx, TK_T_NUMBER ) || !accept(ctx, TK_T_VOID))
+	{
+		int primitive_type = ctx->current_token->type - TK_T_CHAR;
+        int is_pointer = !accept(ctx, '*');
+
+		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
+		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
+        data_type_node = primitive_type_node;
+
+        if(is_pointer)
+		{
+			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
+			pointer_type_node->pointer_data_type_data.data_type = primitive_type_node;
+            data_type_node = pointer_type_node;
+		}
+	}
+    return data_type_node;
+}
+
 static struct ast_node *expression(struct ast_context *ctx);
 
 static struct ast_node *factor(struct ast_context *ctx)
@@ -225,6 +248,24 @@ static struct ast_node *factor(struct ast_context *ctx)
 			return NULL;
 		}
         return n;
+    } else if(!accept(ctx, TK_T_SIZEOF))
+    {
+        if(accept(ctx, '('))
+            return NULL;
+
+        struct ast_node *so_node = push_node(ctx, AST_SIZEOF);
+
+        struct ast_node *subject = type_declaration(ctx);
+        if(!subject)
+		{
+            subject = expression(ctx);
+            if(!subject)
+                return NULL;
+			so_node->sizeof_data.subject = subject;
+		}
+		if(accept(ctx, ')'))
+            return NULL;
+        return so_node;
 	} else if(!accept(ctx, '&'))
     {
         n = push_node(ctx, AST_ADDRESS_OF);
@@ -622,37 +663,19 @@ static void print_ast(struct ast_node *n, int depth)
 
 static int variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
 {
-	if ( !accept( ctx, TK_T_CHAR ) || !accept( ctx, TK_T_SHORT ) || !accept( ctx, TK_T_INT ) ||
-		 !accept( ctx, TK_T_FLOAT ) || !accept( ctx, TK_T_DOUBLE ) || !accept( ctx, TK_T_NUMBER ) || !accept(ctx, TK_T_VOID))
-	{
-		int primitive_type = ctx->current_token->type - TK_T_CHAR;
-
-        int is_pointer = !accept(ctx, '*');
-        
-		if ( accept( ctx, TK_IDENT ) )
+    struct ast_node *type_decl = type_declaration(ctx);
+    if(type_decl)
+    {
+        if ( accept( ctx, TK_IDENT ) )
 		{
 			debug_printf( "expected identifier for type declaration\n" );
 			return 1;
 		}
 		struct ast_node* id = identifier( ctx, ctx->current_token->string );
 
-        struct ast_node *data_type_node = NULL;
-
-		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
-		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
-
-        data_type_node = primitive_type_node;
-
-        if(is_pointer)
-		{
-			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
-			pointer_type_node->pointer_data_type_data.data_type = primitive_type_node;
-            data_type_node = pointer_type_node;
-		}
-
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
 		decl_node->variable_decl_data.id = id;
-		decl_node->variable_decl_data.data_type = data_type_node;
+		decl_node->variable_decl_data.data_type = type_decl;
 
 		if ( !accept( ctx, '[' ) )
 		{
@@ -678,7 +701,7 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 					return 1;
 				}
 				array_type_node->array_data_type_data.array_size = dc;
-				array_type_node->array_data_type_data.data_type = data_type_node;
+				array_type_node->array_data_type_data.data_type = type_decl;
 
 				if ( accept( ctx, '[' ) )
 					break;

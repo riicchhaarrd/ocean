@@ -190,6 +190,11 @@ struct ast_emit
     int opcode;
 };
 
+struct ast_sizeof
+{
+    struct ast_node *subject;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -219,6 +224,7 @@ struct ast_node
         struct ast_array_data_type array_data_type_data;
         struct ast_pointer_data_type pointer_data_type_data;
         struct ast_emit emit_data;
+        struct ast_sizeof sizeof_data;
     };
 };
 

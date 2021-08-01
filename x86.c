@@ -485,7 +485,34 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
         //db(ctx, 0xd0);
             
     } break;
-    
+
+    case AST_SIZEOF:
+	{
+        int sz = 0;
+        switch(n->sizeof_data.subject->type)
+		{
+        case AST_PRIMITIVE_DATA_TYPE:
+        case AST_POINTER_DATA_TYPE:
+        case AST_ARRAY_DATA_TYPE:
+            sz = data_type_size(n->sizeof_data.subject);
+            break;
+        case AST_IDENTIFIER:
+		{
+            struct variable *var = hash_map_find(ctx->function->variables, n->sizeof_data.subject->identifier_data.name);
+            assert(var);
+            sz = data_type_size(var->data_type_node);
+		} break;
+		default:
+            debug_printf("unhandled sizeof '%s'\n", AST_NODE_TYPE_to_string(n->sizeof_data.subject->type));
+            break;
+		}
+        assert(sz>0);
+
+        //mov eax,imm32
+        db(ctx, 0xb8);
+        dd(ctx, sz);
+	} break;
+
 	default:
         debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         return 1;
