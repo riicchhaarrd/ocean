@@ -151,16 +151,43 @@ struct ast_member_expr
     int computed; //unused atm
 };
 
+/* int,char,float,double etc...*/
+struct ast_primitive_data_type
+{
+    int primitive_type;
+};
+
+struct ast_struct_data_type
+{
+//TODO: FIXME
+};
+
+struct ast_array_data_type
+{
+    struct ast_node *data_type; //can be either primitive, array or a struct e.g AoS
+    int array_size;
+    //struct ast_array_data_type *next;
+};
+
+struct ast_pointer_data_type
+{
+    struct ast_node *data_type;
+};
+
 struct ast_variable_decl
 {
-    int data_type;
     struct ast_node *id;
-    int size;
+    struct ast_node *data_type;
 };
 
 struct ast_dereference
 {
     struct ast_node *value;
+};
+
+struct ast_emit
+{
+    int opcode;
 };
 
 struct ast_node
@@ -188,6 +215,10 @@ struct ast_node
         struct ast_member_expr member_expr_data;
         struct ast_variable_decl variable_decl_data;
         struct ast_dereference dereference_data;
+        struct ast_primitive_data_type primitive_data_type_data;
+        struct ast_array_data_type array_data_type_data;
+        struct ast_pointer_data_type pointer_data_type_data;
+        struct ast_emit emit_data;
     };
 };
 

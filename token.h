@@ -33,6 +33,7 @@ enum TOKEN_TYPE
     TK_T_FLOAT,
     TK_T_DOUBLE,
     TK_T_NUMBER,
+    TK_T_VOID,
     
     TK_LSHIFT,
     TK_RSHIFT,
@@ -43,6 +44,8 @@ enum TOKEN_TYPE
     TK_RETURN,
     TK_BREAK,
     TK_LOOP,
+    TK_EMIT,
+    
     TK_EOF,
     TK_MAX,
     TK_INVALID = -1

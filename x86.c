@@ -70,6 +70,61 @@ int get_function_position(struct compile_context *ctx, const char *name)
     return -1;
 }
 
+static int primitive_data_type_size(int type)
+{
+    switch(type)
+	{
+    case DT_CHAR: return IMM8;
+    case DT_SHORT: return IMM16;
+    case DT_INT: return IMM32;
+    case DT_NUMBER: return IMM32;
+    case DT_FLOAT: return IMM32;
+    case DT_DOUBLE: return IMM32;
+    case DT_VOID: return 0;
+	}
+    debug_printf("unhandled type %d\n", type);
+    return 0;
+}
+
+static int data_type_size(struct ast_node *n)
+{
+    switch(n->type)
+	{
+    case AST_POINTER_DATA_TYPE:
+        return IMM32;
+    case AST_PRIMITIVE_DATA_TYPE:
+        return primitive_data_type_size(n->primitive_data_type_data.primitive_type);
+    case AST_ARRAY_DATA_TYPE:
+	{
+		assert( n->array_data_type_data.array_size > 0 );
+        
+		if ( n->array_data_type_data.data_type->type == AST_ARRAY_DATA_TYPE )
+			return data_type_size( n->array_data_type_data.data_type ) * n->array_data_type_data.array_size;
+        else if(n->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE)
+		{
+            //printf("array size = %d, primitive_type_size = %d\n", n->array_data_type_data.array_size, primitive_data_type_size(  n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ));
+			return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ) *
+				   n->array_data_type_data.array_size;
+		}
+		else
+		{
+            perror("unhandled else for data_type_size\n");
+            return 0;
+		}
+	} break;
+	}
+	perror( "unhandled data type node, can't get size\n" );
+	return 0;
+}
+
+static int data_type_pass_by_reference(struct ast_node *n)
+{
+    if(n->type == AST_PRIMITIVE_DATA_TYPE || n->type == AST_POINTER_DATA_TYPE)
+        return 0;
+    //for now pass everything else by reference, arrays etc
+    return 1;
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n);
 
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
@@ -159,21 +214,7 @@ static int add_data(struct compile_context *ctx, void *data, u32 data_size)
 	return curpos;
 }
 
-static int get_data_type_size(int type)
-{
-    switch(type)
-	{
-    case DT_CHAR: return 1;
-    case DT_SHORT: return 2;
-    case DT_INT: return 4;
-    case DT_NUMBER: return 4;
-    case DT_FLOAT: return 4;
-    case DT_DOUBLE: return 4;
-	}
-    return 0;
-}
-
-static int get_local_variable_size(struct compile_context *ctx, struct ast_node *n)
+static int accumulate_local_variable_declaration_size(struct compile_context *ctx, struct ast_node *n)
 {
     assert(n->type == AST_BLOCK_STMT);
     
@@ -183,7 +224,9 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
     {
         if((*it)->type == AST_VARIABLE_DECL)
 		{
-            total += get_data_type_size((*it)->variable_decl_data.data_type) * (*it)->variable_decl_data.size;
+            int ds = data_type_size((*it)->variable_decl_data.data_type);
+            assert(ds > 0);
+            total += ds;
 		}
 #if 0
         if((*it)->type == AST_ASSIGNMENT_EXPR && (*it)->assignment_expr_data.operator == '=')
@@ -192,69 +235,326 @@ static int get_local_variable_size(struct compile_context *ctx, struct ast_node 
         }
 #endif
     });
+    return total;
+    /*
     //align to 32
     //TODO: fix this make sure the esp value is aligned instead
     int aligned = total & ~31;
     if(aligned == 0)
         return 32;
     return aligned;
+    */
 }
+
+//TODO: implement all opcodes we'll be using so we can keep track of the registers and their values
+//TODO: replace our "real" registers with "virtual" registers
+
+static void push(struct compile_context *ctx, enum REGISTER reg)
+{
+    db(ctx, 0x50 + reg);
+    ctx->registers[ESP] -= 4;
+}
+
+static void pop(struct compile_context *ctx, enum REGISTER reg)
+{
+    db(ctx, 0x58 + reg);
+    ctx->registers[ESP] += 4;
+}
+
+static void mov_r_imm32(struct compile_context *ctx, enum REGISTER reg, i32 imm)
+{
+    ctx->registers[reg] = imm;
+    db(ctx, 0xb8 + reg);
+    dd(ctx, imm);
+}
+
+static void add(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
+{
+    ctx->registers[a] += ctx->registers[b];
+    db(ctx, 0x01);
+    db(ctx, 0xc0 + b * 9 + a);
+}
+
+static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const char *str)
+{
+	db( ctx, 0xb8 + reg);
+	int from = instruction_position( ctx );
+	dd( ctx, 0xcccccccc ); // placeholder
+
+    //TODO: FIXME reloc the register we're keeping track of aswell to the correct to be determined memory location
+    ctx->registers[reg] = (intptr_t)str;
+    
+	int sz = strlen( str ) + 1;
+	int to = add_data( ctx, (void*)str, sz );
+
+	// TODO: FIXME make it cleaner and add just a function call before the placeholder inject/xref something
+	// and make it work with any type of data so it can go into the .data segment
+
+	struct relocation reloc = { .from = from, .to = to, .size = sz, .type = RELOC_DATA };
+	linked_list_prepend( ctx->relocations, reloc );
+}
+
 static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *variable_node, int allocate_space);
 
-static void load_member_expression(struct compile_context *ctx, enum REGISTER reg, int as_pointer, struct ast_node *n)
+static intptr_t register_value(struct compile_context *ctx, enum REGISTER reg)
 {
-    //object is probably identifier or something
-    //TODO: FIXME if it's not an identifier, pass a flag or something recursively whilst loading expressions so they always get loaded as pointer with lea
-    //printf("object type = %s\n", AST_NODE_TYPE_to_string(n->member_expr_data.object->type));
-    assert(n->member_expr_data.object->type == AST_IDENTIFIER);
-    load_variable(ctx, EBX, 0, n->member_expr_data.object, 0);
-    //load_variable(ctx, EBX, 1, n->member_expr_data.object, 0);
-    
-    //process(ctx, n->member_expr_data.object);
-    //var should now be in EBX as pointer
-    
-    //expression type
-    //printf("property type = %s\n", AST_NODE_TYPE_to_string(n->member_expr_data.property->type));
-    process(ctx, n->member_expr_data.property);
+    return ctx->registers[reg];
+}
 
-    switch(reg)
-    {
-    case EAX:        
-        if(as_pointer)
-        {
-            //lea eax, [ebx+eax]
-            db(ctx, 0x8d);
-            db(ctx, 0x03);
-        } else
-        {
-            // mov eax, [ebx+eax]
-            db( ctx, 0x8b );
-            db( ctx, 0x04 );
-            db( ctx, 0x03 );
-        }
-	break;
-
-	case EBX:
-        if(as_pointer)
-        {
-            //add ebx, eax
-            db(ctx, 0x01);
-            db(ctx, 0xc3);
-            
-            //lea ebx, [ebx]
-            //db(ctx, 0x8d);
-            //db(ctx, 0x1b);
-        } else
-        {
-            // mov ebx, [ebx+eax]
-            db( ctx, 0x8b );
-            db( ctx, 0x1c );
-            db( ctx, 0x03 );
-        }
+static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
+{
+    ctx->operand_size = IMM32;
+    switch(n->type)
+	{
+	case AST_LITERAL:
+		// mov eax,imm32
+		switch ( n->literal_data.type )
+		{
+		case LITERAL_INTEGER:
+            mov_r_imm32(ctx, reg, n->literal_data.integer);
+			break;
+		case LITERAL_STRING:
+		{
+            mov_r_string(ctx, reg, n->literal_data.string);
+		}
+		break;
+		default:
+			perror( "unhandled literal" );
+			break;
+		}
 		break;
 
+    case AST_IDENTIFIER:
+	{
+		const char* variable_name = n->identifier_data.name;
+		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
+		assert( var );
+        int offset = var->is_param ? 8 + var->offset : 0xfc - var->offset;
+		// mov r32,[ebp - offset]
+		db( ctx, 0x8b );
+		db( ctx, 0x45 + 8 * reg );
+		db( ctx, offset );
+	} break;
+
+    case AST_BIN_EXPR:
+    {
+        struct ast_node *lhs = n->bin_expr_data.lhs;
+        struct ast_node *rhs = n->bin_expr_data.rhs;
+
+        //eax should still be stored leftover
+        if(lhs->type == AST_LITERAL)
+        {
+            //mov eax,imm32
+            db(ctx, 0xb8);
+            dd(ctx, lhs->literal_data.integer);
+        } else
+            process(ctx, lhs);
+        
+        if(rhs->type == AST_LITERAL)
+        {
+            //mov ecx,imm32
+            db(ctx, 0xb9);
+            dd(ctx, rhs->literal_data.integer);
+        } else
+        {
+            //push eax
+            db(ctx, 0x50);
+            process(ctx, rhs);
+            //mov ecx,eax
+            db(ctx, 0x89);
+            db(ctx, 0xc1);
+            //pop eax
+            db(ctx, 0x58);
+        }
+
+        //xor edx,edx
+        db(ctx, 0x31);
+        db(ctx, 0xd2);
+
+        //xor edx,edx
+        //db(ctx, 0x31);
+        //db(ctx, 0xd2);
+
+        switch(n->bin_expr_data.operator)
+        {
+        case '*':
+            //imul ecx
+            db(ctx, 0xf7);
+            db(ctx, 0xe9);
+            break;
+        case '/':
+            //idiv ecx
+            db(ctx, 0xf7);
+            db(ctx, 0xf9);
+            break;
+
+        case '+':
+            db(ctx, 0x01);
+            db(ctx, 0xc8);
+            break;
+        case '-':
+            db(ctx, 0x29);
+            db(ctx, 0xc8);
+            break;
+        case '&':
+            db(ctx, 0x21);
+            db(ctx, 0xc8);
+            break;
+            break;
+        case '|':
+            db(ctx, 0x09);
+            db(ctx, 0xc8);
+            break;
+        case '^':
+            db(ctx, 0x31);
+            db(ctx, 0xc8);
+            break;
+        case TK_LSHIFT:
+            db(ctx, 0xd3);
+            db(ctx, 0xf0);
+            break;
+        case TK_RSHIFT:
+            db(ctx, 0xd3);
+            db(ctx, 0xf8);
+            break;
+        case '%':
+            db(ctx, 0xf7);
+            db(ctx, 0xf9);
+            db(ctx, 0x89);
+            db(ctx, 0xd0);
+            break;
+        case '>':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jl <relative offset>
+            db(ctx, 0x7c);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+            
+        case '<':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jg <relative offset>
+            db(ctx, 0x7f);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+
+        default:
+            printf("unhandled operator %c\n", n->bin_expr_data.operator);
+            break;
+        }
+
+        //mov eax,edx
+        //db(ctx, 0x89);
+        //db(ctx, 0xd0);
+            
+    } break;
+    
+	default:
+        debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
+        return 1;
+	}
+    return 0;
+}
+
+//locator value, can be local variable, global variable, array offset or any other valid lvalue
+static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
+{
+    switch(n->type)
+	{
+    case AST_IDENTIFIER:
+	{
+		const char* variable_name = n->identifier_data.name;
+		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
+		assert( var );
+		int as_pointer = data_type_pass_by_reference( var->data_type_node );
+        struct ast_node *variable_type = var->data_type_node;
+        int offset = var->is_param ? 8 + var->offset : 0xfc - var->offset;
+        if(as_pointer || !var->is_param)
+		{
+			// lea r32,[ebp - offset]
+			db( ctx, 0x8d );
+			db( ctx, 0x45 + 8 * reg );
+            db( ctx, offset );
+		} else
+		{
+			// mov r32,[ebp - offset]
+			db( ctx, 0x8b );
+			db( ctx, 0x45 + 8 * reg );
+			db( ctx, offset );
+		}
+
+        switch(variable_type->type)
+		{
+        case AST_PRIMITIVE_DATA_TYPE:
+            ctx->register_size = primitive_data_type_size(variable_type->primitive_data_type_data.primitive_type);
+            break;
+        case AST_POINTER_DATA_TYPE:
+            ctx->register_size = primitive_data_type_size(variable_type->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type);
+            break;
+        case AST_ARRAY_DATA_TYPE:
+            //TODO: fix multidimensional arrays
+            assert(variable_type->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE);
+            ctx->register_size = primitive_data_type_size(variable_type->array_data_type_data.data_type->primitive_data_type_data.primitive_type);
+            break;
+        default:
+            debug_printf("unhandled data type '%s'\n", AST_NODE_TYPE_to_string(variable_type->type));
+            break;
+		}
+        
+        assert(ctx->register_size > 0);
+        
+		// load_variable( ctx, reg, 1, n, 0 );
+	} break;
+	case AST_MEMBER_EXPR:
+	{
+		// TODO: FIXME for multidimensional arrays
+		struct ast_node* object = n->member_expr_data.object;
+		lvalue( ctx, reg, object );
+        int tmp = ctx->register_size;
+		rvalue( ctx, EAX, n->member_expr_data.property );
+		if ( register_value( ctx, EAX ) > 0 )
+			add( ctx, EBX, EAX );
+        ctx->register_size = tmp;
+	} break;
     default:
-        perror("unhandled register... load_member_expression\n");
+        debug_printf("unhandled lvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         break;
 	}
 }
@@ -266,13 +566,7 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
 	// then assigning them and loading the variables afterwards..
 	// a = 0xff;
 	// my_func(a);
-	assert(variable_node->type == AST_IDENTIFIER || variable_node->type == AST_MEMBER_EXPR);
-    
-    if(variable_node->type == AST_MEMBER_EXPR)
-	{
-        load_member_expression(ctx, reg, as_pointer, variable_node);
-        return;
-	}
+	assert(variable_node->type == AST_IDENTIFIER);    
 	const char *variable_name = variable_node->identifier_data.name;
     
     struct variable *var = hash_map_find(ctx->function->variables, variable_name);
@@ -281,14 +575,8 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
         printf("variable '%s' doesn't exist.\n", variable_name);
     }
     assert(var);
-    int variable_data_type = var->data_type;
-    int variable_data_size = var->data_size;
-    if(variable_data_size > 1)
-	{
-        //if size is more than just a single value, load it as a pointer
-        //implicitly converting [] to *
+    if(data_type_pass_by_reference(var->data_type_node))
         as_pointer = 1;
-	}
 	//assert(!(allocate_space && var)); //if we already have a parameter, we can't create a local variable then
     
     //assert(var); //assume the variable exists, otherwise return a compiler error... FIXME
@@ -303,9 +591,9 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
 		db( ctx, 0x8b );
 		db( ctx, 0x45 );
         if(var->is_param)
-			db( ctx, 8 + var->offset * 4);
+			db( ctx, 8 + var->offset);
         else
-			db( ctx, 0xfc - 4 * var->offset );
+			db( ctx, 0xfc - var->offset );
         } else
 		{
             // lea eax,[ebp-4]
@@ -313,9 +601,9 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
             db( ctx, 0x45 );
             
             if(var->is_param)
-                db( ctx, 8 + var->offset * 4);
+                db( ctx, 8 + var->offset);
             else
-                db( ctx, 0xfc - 4 * var->offset );
+                db( ctx, 0xfc - var->offset );
 		}
 		break;
     case EBX:
@@ -327,9 +615,9 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
             if(!allocate_space || var)
             {
                 if(var->is_param)
-                    db( ctx, 8 + var->offset * 4);
+                    db( ctx, 8 + var->offset);
                 else
-                    db( ctx, 0xfc - 4 * var->offset );
+                    db( ctx, 0xfc - var->offset );
             } else
             {
                 assert(var);
@@ -346,28 +634,23 @@ static void load_variable(struct compile_context *ctx, enum REGISTER reg, int as
             db( ctx, 0x8b );
             db( ctx, 0x5d );
             if(var->is_param)
-                db( ctx, 8 + var->offset * 4);
+                db( ctx, 8 + var->offset);
             else
-                db( ctx, 0xfc - 4 * var->offset );
+                db( ctx, 0xfc - var->offset );
 		}
 		break;
 	}
-}
-
-static void push(struct compile_context *ctx, enum REGISTER reg)
-{
-    db(ctx, 0x50 + reg);
-}
-
-static void pop(struct compile_context *ctx, enum REGISTER reg)
-{
-    db(ctx, 0x58 + reg);
 }
 
 static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
     {
+    case AST_EMIT:
+    {
+        db(ctx, n->emit_data.opcode);
+    } break;
+        
     case AST_IF_STMT:
     {
         struct ast_node *test = n->if_stmt_data.test;
@@ -428,26 +711,29 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         struct function func = {
             .location = loc,
             .name = n->func_decl_data.id->identifier_data.name,
-            .localsize = 0,
+            .localvariablesize = 0,
             .variables = hash_map_create(struct variable)
         };
         ctx->function = linked_list_prepend(ctx->functions, func);
-
+        int offset = 0;
         for(int i = 0; i < n->func_decl_data.numparms; ++i)
 		{
             struct ast_node *parm = n->func_decl_data.parameters[i];
-            assert(parm->type == AST_IDENTIFIER);
+            assert(parm->type == AST_VARIABLE_DECL);
 
             struct variable tv = {
-                    .offset = i,
+                    .offset = offset,
                     .is_param = 1,
-                    .data_type = DT_INT, //FIXME: hardcoded int for now,
-                    .data_size = 1 //FIXME: maybe more than 1 in size..
+                    .data_type_node = parm->variable_decl_data.data_type
             };
-            hash_map_insert(ctx->function->variables, parm->identifier_data.name, tv);
+
+            offset += data_type_pass_by_reference(parm->variable_decl_data.data_type) ? /*TODO:FIXME hardcoded pointer size*/IMM32:data_type_size(parm->variable_decl_data.data_type);
+            
+            assert(parm->variable_decl_data.id->type == AST_IDENTIFIER);
+            hash_map_insert(ctx->function->variables, parm->variable_decl_data.id->identifier_data.name, tv);
 		}
         assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
-        int localsize = get_local_variable_size(ctx, n->func_decl_data.body);
+        int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
         //push ebp
         //mov ebp, esp
         db(ctx, 0x55);
@@ -601,156 +887,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             }
         }
     } break;
-    
-    case AST_BIN_EXPR:
-    {
-        struct ast_node *lhs = n->bin_expr_data.lhs;
-        struct ast_node *rhs = n->bin_expr_data.rhs;
-
-        //eax should still be stored leftover
-        if(lhs->type == AST_LITERAL)
-        {
-            //mov eax,imm32
-            db(ctx, 0xb8);
-            dd(ctx, lhs->literal_data.integer);
-        } else
-            process(ctx, lhs);
-        
-        if(rhs->type == AST_LITERAL)
-        {
-            //mov ecx,imm32
-            db(ctx, 0xb9);
-            dd(ctx, rhs->literal_data.integer);
-        } else
-        {
-            //push eax
-            db(ctx, 0x50);
-            process(ctx, rhs);
-            //mov ecx,eax
-            db(ctx, 0x89);
-            db(ctx, 0xc1);
-            //pop eax
-            db(ctx, 0x58);
-        }
-
-        //xor edx,edx
-        db(ctx, 0x31);
-        db(ctx, 0xd2);
-
-        //xor edx,edx
-        //db(ctx, 0x31);
-        //db(ctx, 0xd2);
-
-        switch(n->bin_expr_data.operator)
-        {
-        case '*':
-            //imul ecx
-            db(ctx, 0xf7);
-            db(ctx, 0xe9);
-            break;
-        case '/':
-            //idiv ecx
-            db(ctx, 0xf7);
-            db(ctx, 0xf9);
-            break;
-
-        case '+':
-            db(ctx, 0x01);
-            db(ctx, 0xc8);
-            break;
-        case '-':
-            db(ctx, 0x29);
-            db(ctx, 0xc8);
-            break;
-        case '&':
-            db(ctx, 0x21);
-            db(ctx, 0xc8);
-            break;
-            break;
-        case '|':
-            db(ctx, 0x09);
-            db(ctx, 0xc8);
-            break;
-        case '^':
-            db(ctx, 0x31);
-            db(ctx, 0xc8);
-            break;
-        case TK_LSHIFT:
-            db(ctx, 0xd3);
-            db(ctx, 0xf0);
-            break;
-        case TK_RSHIFT:
-            db(ctx, 0xd3);
-            db(ctx, 0xf8);
-            break;
-        case '%':
-            db(ctx, 0xf7);
-            db(ctx, 0xf9);
-            db(ctx, 0x89);
-            db(ctx, 0xd0);
-            break;
-        case '>':
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jl <relative offset>
-            db(ctx, 0x7c);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-            
-        case '<':
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jg <relative offset>
-            db(ctx, 0x7f);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-
-        default:
-            printf("unhandled operator %c\n", n->bin_expr_data.operator);
-            break;
-        }
-
-        //mov eax,edx
-        //db(ctx, 0x89);
-        //db(ctx, 0xd0);
-            
-    } break;
 
     case AST_ADDRESS_OF:
     {
@@ -790,7 +926,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         struct ast_node *lhs = n->assignment_expr_data.lhs;
         struct ast_node *rhs = n->assignment_expr_data.rhs;
 
-        process(ctx, rhs);
+        rvalue(ctx, EAX, rhs);
         //we should now have our result in eax
     
         switch(n->assignment_expr_data.operator)
@@ -819,18 +955,27 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         case '=':
         {
             push(ctx, EAX);
-            load_variable(ctx, EBX, 1, lhs, 1);
+            lvalue(ctx, EBX, lhs);
             pop(ctx, EAX);
-            
-            //db(ctx, 0xff);
-            //db(ctx, 0xff);
-            //db(ctx, 0xff);
-            //db(ctx, 0xff);
-            //db(ctx, 0xff);
-            //db(ctx, 0xff);
-            //mov [ebx],eax
-            db(ctx, 0x89);
-            db(ctx, 0x03);
+
+            //TODO: fix hardcoded EBX
+            switch(ctx->register_size)
+			{
+			case IMM32:
+				// mov [ebx],eax
+				db( ctx, 0x89 );
+				db( ctx, 0x03 );
+				break;
+            case IMM8:
+                //mov byte ptr [ebx], al
+				db( ctx, 0x88 );
+				db( ctx, 0x03 );
+                break;
+            default:
+                debug_printf("unhandled register size %d\n", ctx->register_size);
+                exit(1);
+                break;
+			}
         } break;
         
         default:
@@ -841,28 +986,48 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 
     case AST_MEMBER_EXPR:
     {
-        load_variable(ctx, EAX, 0, n, 0);
-    } break;
+        struct ast_node *object = n->member_expr_data.object;
+        struct ast_node *property = n->member_expr_data.property;
+        if(object->type == AST_IDENTIFIER)
+		{
+            process(ctx, property);
+            load_variable(ctx, EBX, 1, object, 0);
+            //add ebx, eax
+            db(ctx, 0x01);
+            db(ctx, 0xc3);
+		} else if(object->type == AST_MEMBER_EXPR)
+		{
+            process(ctx, object);
+            //should be in ebx now
+            push(ctx, EBX);
+            
+            process(ctx, property);
+            //should be in eax now
+
+            pop(ctx, EBX);
+
+            //finally add them together
+            //add ebx, eax
+            db(ctx, 0x01);
+            db(ctx, 0xc3);
+		} else
+            perror("unhandled member expression");
+	} break;
 
     case AST_VARIABLE_DECL:
     {
-        int data_type = n->variable_decl_data.data_type;
         struct ast_node *id = n->variable_decl_data.id;
+        struct ast_node *data_type_node = n->variable_decl_data.data_type;
         assert(id->type == AST_IDENTIFIER);
-        int size = n->variable_decl_data.size;
         const char *variable_name = id->identifier_data.name;
 
-        printf("data_type = %d, identifier = %s, size = %d, total_size = %d\n", data_type, id->identifier_data.name, size, get_data_type_size(data_type) * size);
-
-        /*
-        //lea ebx,[ebp-4]
-        db( ctx, 0x8d );
-        db( ctx, 0x5d );
+        int offset = ctx->function->localvariablesize;
         
-        db(ctx, 0xfc - 4 * ctx->function->localsize++);
-        */
-        ++ctx->function->localsize;
-        struct variable tv = { .offset = ctx->function->localsize - 1, .is_param = 0, .data_type = data_type, .data_size = size };
+        int variable_size = data_type_size(data_type_node);
+        assert(variable_size > 0);
+        ctx->function->localvariablesize += variable_size;
+        
+        struct variable tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
         hash_map_insert( ctx->function->variables, variable_name, tv );
     } break;
 
@@ -891,9 +1056,12 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     } break;
     
     default:
-		printf("unhandled ast node type %d\n", n->type);
-        exit(-1);
-        break;
+        if(rvalue(ctx, EAX, n))
+		{
+			printf( "unhandled ast node type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
+			exit( -1 );
+		}
+		break;
     }
 }
 
@@ -905,6 +1073,9 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     ctx->relocations = linked_list_create(struct relocation);
     ctx->functions = linked_list_create(struct function);
     ctx->data = NULL;
+    ctx->operand_size = ctx->register_size = 0;
+
+    memset(ctx->registers, 0, sizeof(ctx->registers));
 
     //mov eax,imm32
     db(ctx, 0xb8);

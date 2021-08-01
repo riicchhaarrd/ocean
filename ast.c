@@ -234,26 +234,34 @@ static struct ast_node *factor(struct ast_context *ctx)
 			debug_printf( "invalid expression\n" );
 			return NULL;
 		}
-	} else if(!accept(ctx, '['))
-    {
-        //TODO: FIXME
-        /* n = expression(ctx); */
-        /* if(!n) */
-        /* { */
-        /*     debug_printf("no expression within array subscript\n"); */
-        /*     return NULL; */
-        /* } */
-        /* if(accept(ctx, ']')) */
-        /* { */
-        /*     debug_printf("expected ending bracket.. )\n"); */
-        /*     return NULL; */
-        /* } */
-        /* return n; */
 	} else
     {
 		debug_printf("expected integer.. got %s (%d)\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type);
     }
     return n;
+}
+
+static struct ast_node *array_subscripting(struct ast_context *ctx)
+{
+    struct ast_node *lhs = factor(ctx);
+    if(!lhs)
+        return NULL;
+    while(!accept(ctx, '['))
+    {
+    	struct ast_node *rhs = expression(ctx);
+        if(!rhs)
+        {
+			debug_printf("error.... no rhs..\n");
+            return NULL;
+        }
+        if(accept(ctx, ']'))
+		{
+            debug_printf("expected ending bracket for array subscript\n");
+            return NULL;
+		}
+		lhs = array_subscript_expr(ctx, lhs, rhs);
+    }
+    return lhs;
 }
 
 static struct ast_node *term(struct ast_context *ctx)
@@ -265,7 +273,7 @@ static struct ast_node *term(struct ast_context *ctx)
         ++negate;
     */
 
-    lhs = factor(ctx);
+    lhs = array_subscripting(ctx);
     if(!lhs)
     {
         debug_printf("no term found\n");
@@ -278,7 +286,7 @@ static struct ast_node *term(struct ast_context *ctx)
     while(!accept(ctx, '/') || !accept(ctx, '*') || !accept(ctx, '%'))
     {
         int operator = ctx->current_token->type;
-    	struct ast_node *rhs = factor(ctx);
+    	struct ast_node *rhs = array_subscripting(ctx);
         if(!rhs)
         {
 			debug_printf("error.... no rhs..\n");
@@ -506,10 +514,22 @@ static void print_ast(struct ast_node *n, int depth)
     case AST_FUNCTION_DECL:
 	{
         printf("function '%s'\n", n->func_decl_data.id->identifier_data.name);
-        print_ast(n->func_decl_data.body, depth + 1);
+        for(int i = 0; i < n->func_decl_data.numparms; ++i)
+		{
+            print_tabs(depth);
+            printf("parm %d -> %s\n", i, n->func_decl_data.parameters[i]->variable_decl_data.id);
+            print_ast(n->func_decl_data.parameters[i]->variable_decl_data.data_type, depth + 1);
+		}
+
+		print_ast(n->func_decl_data.body, depth + 1);
 	} break;
 
-    case AST_FUNCTION_CALL_EXPR:
+    case AST_POINTER_DATA_TYPE:
+	{
+        printf("pointer data type '%s'\n", data_type_strings[n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type]);
+	} break;
+
+	case AST_FUNCTION_CALL_EXPR:
     {
         struct ast_node **args = n->call_expr_data.arguments;
         int numargs = n->call_expr_data.numargs;
@@ -545,15 +565,50 @@ static void print_ast(struct ast_node *n, int depth)
 	{
         printf("variable declaration\n");
         //printf("data_type = '%s', size = %d\n", data_type_strings[n->variable_decl_data.data_type], n->variable_decl_data.size);
-        //printf("id:\n");
+        
+        print_tabs(depth);
+        printf("id:\n");
         print_ast(n->variable_decl_data.id, depth + 1);
+        
+        print_tabs(depth);
+        printf("data type:\n");
+        print_ast(n->variable_decl_data.data_type, depth + 1);
 	} break;
 
-    case AST_DEREFERENCE:
+    case AST_ARRAY_DATA_TYPE:
+	{
+        printf("array data type [%d]\n", n->array_data_type_data.array_size);
+        print_ast(n->array_data_type_data.data_type, depth + 1);
+	} break;
+
+    case AST_PRIMITIVE_DATA_TYPE:
+	{
+        printf("type %s\n", data_type_strings[n->primitive_data_type_data.primitive_type]);
+	} break;
+
+	case AST_DEREFERENCE:
 	{
         printf("dereferencing:\n");
         print_ast(n->dereference_data.value, depth + 1);
 	} break;
+    
+    case AST_RETURN_STMT:
+	{
+        printf("return\n");
+        print_ast(n->return_stmt_data.argument, depth + 1);
+	} break;
+    
+    case AST_FOR_STMT:
+    {
+        printf("init:\n");
+        print_ast(n->for_stmt_data.init, depth + 1);
+        printf("test:\n");
+        print_ast(n->for_stmt_data.test, depth + 1);
+        printf("update:\n");
+        print_ast(n->for_stmt_data.update, depth + 1);
+        printf("body:\n");
+        print_ast(n->for_stmt_data.body, depth + 1);
+    } break;
 
 	default:
 		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
@@ -565,49 +620,108 @@ static void print_ast(struct ast_node *n, int depth)
     reset_print_color();
 }
 
+static int variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
+{
+	if ( !accept( ctx, TK_T_CHAR ) || !accept( ctx, TK_T_SHORT ) || !accept( ctx, TK_T_INT ) ||
+		 !accept( ctx, TK_T_FLOAT ) || !accept( ctx, TK_T_DOUBLE ) || !accept( ctx, TK_T_NUMBER ) || !accept(ctx, TK_T_VOID))
+	{
+		int primitive_type = ctx->current_token->type - TK_T_CHAR;
+
+        int is_pointer = !accept(ctx, '*');
+        
+		if ( accept( ctx, TK_IDENT ) )
+		{
+			debug_printf( "expected identifier for type declaration\n" );
+			return 1;
+		}
+		struct ast_node* id = identifier( ctx, ctx->current_token->string );
+
+        struct ast_node *data_type_node = NULL;
+
+		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
+		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
+
+        data_type_node = primitive_type_node;
+
+        if(is_pointer)
+		{
+			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
+			pointer_type_node->pointer_data_type_data.data_type = primitive_type_node;
+            data_type_node = pointer_type_node;
+		}
+
+		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
+		decl_node->variable_decl_data.id = id;
+		decl_node->variable_decl_data.data_type = data_type_node;
+
+		if ( !accept( ctx, '[' ) )
+		{
+			struct ast_node* array_type_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
+			decl_node->variable_decl_data.data_type =
+				array_type_node; // set our first array type on the declaration node it's data type
+			while ( 1 )
+			{
+				if ( accept( ctx, TK_INTEGER ) )
+				{
+					debug_printf( "expected constant int array size\n" );
+					return 1;
+				}
+				int dc = ctx->current_token->integer;
+				if ( dc == 0 )
+				{
+					debug_printf( "array size can't be zero\n" );
+					return 1;
+				}
+				if ( accept( ctx, ']' ) )
+				{
+					debug_printf( "expected ] after array type declaration\n" );
+					return 1;
+				}
+				array_type_node->array_data_type_data.array_size = dc;
+				array_type_node->array_data_type_data.data_type = data_type_node;
+
+				if ( accept( ctx, '[' ) )
+					break;
+				struct ast_node* new_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
+				array_type_node->array_data_type_data.data_type = new_node;
+				array_type_node = new_node;
+			}
+		}
+        *out_decl_node = decl_node;
+        return 0;
+	}
+    *out_decl_node = NULL;
+    return 0;
+}
+
 static struct ast_node *block(struct ast_context *ctx);
 static struct ast_node *statement(struct ast_context *ctx)
 {
-    if(!accept(ctx, TK_T_CHAR) || !accept(ctx, TK_T_SHORT) || !accept(ctx, TK_T_INT) || !accept(ctx, TK_T_FLOAT) || !accept(ctx, TK_T_DOUBLE) || !accept(ctx, TK_T_NUMBER))
+    struct ast_node *decl_node = NULL;
+    int ret = variable_declaration(ctx, &decl_node);
+    if(ret)
+        return NULL;
+    
+    if(decl_node != NULL)
     {
-        int data_type = ctx->current_token->type - TK_T_CHAR;
-        int data_count = 1;
-        if(accept(ctx, TK_IDENT))
-        {
-            debug_printf("expected identifier for type declaration\n");
-            return NULL;
-        }
-        struct ast_node *id = identifier(ctx, ctx->current_token->string);
-        if(!accept(ctx, '['))
-		{
-            if(accept(ctx, TK_INTEGER))
-			{
-                debug_printf("expected constant int array size\n");
-                return NULL;
-			}
-            data_count = ctx->current_token->integer;
-            if(data_count == 0)
-			{
-                debug_printf("array size can't be zero\n");
-                return NULL;
-			}
-			if(accept(ctx, ']'))
-			{
-                debug_printf("expected ] after array type declaration\n");
-				return NULL;
-			}
-		}
-        if(accept(ctx, ';'))
+		if(accept(ctx, ';'))
 		{
             debug_printf("expected ; after variable type declaration\n");
             return NULL;
 		}
-		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
-        decl_node->variable_decl_data.id = id;
-        decl_node->variable_decl_data.data_type = data_type;
-        decl_node->variable_decl_data.size = data_count;
         return decl_node;
-    } else if(!accept(ctx, TK_IF))
+    }
+
+    if(!accept(ctx, TK_EMIT))
+	{
+        if(accept(ctx, TK_INTEGER))
+            return NULL;
+        int opcode = ctx->current_token->integer;
+
+		struct ast_node* n = push_node( ctx, AST_EMIT );
+        n->emit_data.opcode = opcode;
+        return n;
+	} else if(!accept(ctx, TK_IF))
 	{
         if(accept(ctx, '('))
 		{
@@ -767,14 +881,26 @@ static struct ast_node *program(struct ast_context *ctx)
                 debug_printf("expected ( after function\n");
                 return NULL;
             }
-            while(!accept(ctx, TK_IDENT))
-            {
-                debug_printf("func parm %s\n", ctx->current_token->string);
-                struct ast_node *ident = identifier(ctx, ctx->current_token->string);
-                decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = ident;
+
+            struct ast_node *parm_decl = NULL;
+            while(1)
+			{
+				int ret = variable_declaration( ctx, &parm_decl );
+                if(ret)
+                    return NULL;
+
+                if(parm_decl == NULL)
+                    break;
+                
+                assert(parm_decl->variable_decl_data.id->type == AST_IDENTIFIER);
+                //debug_printf("func parm %s\n", parm_decl->variable_decl_data.id->identifier_data.name);
+                
+                decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = parm_decl;
+                
                 if(accept(ctx, ','))
                     break;
-            }
+			}
+            
             if(accept(ctx, ')'))
             {
                 debug_printf("expected ( after function\n");

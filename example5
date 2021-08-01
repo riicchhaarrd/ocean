@@ -1,0 +1,25 @@
+function test(char *p)
+{
+   int i;
+   for(i=0;i<10;i+=1)
+   {
+       p[4] = 'a' + i;
+       write(1, p, 7);
+   }
+}
+
+function main()
+{   
+   char a[32];
+   a[31] = 0;
+   
+   a[0] = 'h';
+   a[1] = 'e';
+   a[2] = 'y';
+   a[3] = ' ';
+   a[4] = '?';
+   a[5] = 10;
+   a[6] = 0;
+
+   test(a);
+}
