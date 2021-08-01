@@ -423,6 +423,59 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             db(ctx, 0x89);
             db(ctx, 0xd0);
             break;
+
+        case TK_GEQUAL:
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jl <relative offset>
+            db(ctx, 0x7c);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+            
+        case TK_LEQUAL:
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jg <relative offset>
+            db(ctx, 0x7f);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+            
         case '>':
             //cmp eax,ecx
             db(ctx, 0x39);
@@ -476,7 +529,7 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             break;
 
         default:
-            printf("unhandled operator %c\n", n->bin_expr_data.operator);
+            printf("unhandled operator (%d) %c\n", n->bin_expr_data.operator, n->bin_expr_data.operator);
             break;
         }
 
