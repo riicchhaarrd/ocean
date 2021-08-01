@@ -454,8 +454,8 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             db(ctx, 0x39);
             db(ctx, 0xc8);
             
-            //jg <relative offset>
-            db(ctx, 0x7f);
+            //jge <relative offset>
+            db(ctx, 0x7d);
             db(ctx, 0x5);
             
             //xor eax,eax
