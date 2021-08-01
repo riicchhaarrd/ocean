@@ -423,7 +423,8 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             db(ctx, 0x89);
             db(ctx, 0xd0);
             break;
-        case '>':
+
+        case TK_GEQUAL:
             //cmp eax,ecx
             db(ctx, 0x39);
             db(ctx, 0xc8);
@@ -449,7 +450,7 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             
             break;
             
-        case '<':
+        case TK_LEQUAL:
             //cmp eax,ecx
             db(ctx, 0x39);
             db(ctx, 0xc8);
@@ -474,9 +475,61 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             db(ctx, 0xc0);
             
             break;
+            
+        case '>':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jle <relative offset>
+            db(ctx, 0x7e);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
+            
+        case '<':
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jge <relative offset>
+            db(ctx, 0x7d);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            break;
 
         default:
-            printf("unhandled operator %c\n", n->bin_expr_data.operator);
+            printf("unhandled operator (%d) %c\n", n->bin_expr_data.operator, n->bin_expr_data.operator);
             break;
         }
 
@@ -485,7 +538,34 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
         //db(ctx, 0xd0);
             
     } break;
-    
+
+    case AST_SIZEOF:
+	{
+        int sz = 0;
+        switch(n->sizeof_data.subject->type)
+		{
+        case AST_PRIMITIVE_DATA_TYPE:
+        case AST_POINTER_DATA_TYPE:
+        case AST_ARRAY_DATA_TYPE:
+            sz = data_type_size(n->sizeof_data.subject);
+            break;
+        case AST_IDENTIFIER:
+		{
+            struct variable *var = hash_map_find(ctx->function->variables, n->sizeof_data.subject->identifier_data.name);
+            assert(var);
+            sz = data_type_size(var->data_type_node);
+		} break;
+		default:
+            debug_printf("unhandled sizeof '%s'\n", AST_NODE_TYPE_to_string(n->sizeof_data.subject->type));
+            break;
+		}
+        assert(sz>0);
+
+        //mov eax,imm32
+        db(ctx, 0xb8);
+        dd(ctx, sz);
+	} break;
+
 	default:
         debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         return 1;
