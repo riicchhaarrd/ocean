@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include "std.h"
 #include "token.h"
 #include "ast.h"
 #include "types.h"
@@ -37,6 +37,8 @@ void parse(heap_string, struct token**, int*);
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
 int x86(struct ast_node *head, struct compile_context *ctx);
 
+int opt_flags = 0;
+
 int main( int argc, char** argv )
 {
     if ( argc < 2 )
@@ -51,8 +53,24 @@ int main( int argc, char** argv )
     const char *mode = "";
     if(argc>2)
         mode = argv[2];
-    
-    struct token *tokens = NULL;
+
+    for(int i = 1; i < argc; ++i)
+	{
+        if(argv[i][0] == '-')
+		{
+            switch(argv[i][1])
+			{
+            case 'v':
+                opt_flags |= OPT_VERBOSE;
+                break;
+            case 'd':
+                opt_flags |= OPT_DEBUG;
+                break;
+			}
+		}
+	}
+
+	struct token *tokens = NULL;
     int num_tokens = 0;
     
 	// printf("data = %s\n", data);

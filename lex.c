@@ -100,7 +100,7 @@ static int match_test_ident(int ch)
 {
     //Keep in mind this only works with numbers being non-first because there's a if before that checks for integers and this is called
     //in a if else, otherwise check if it's only on the first character.
-    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || (ch >= '0' && ch <= '9');
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '$' || ch == '_' || (ch >= '0' && ch <= '9');
 }
 
 static int match_test_string(int ch)
@@ -241,9 +241,32 @@ retry:
             return 0;
         }
         break;
+        
+	case '\'':
+    {
+        tk->type = TK_INTEGER;
+        if(!next_check(lex, '"'))
+        {
+            perror("error: empty character constant\n");
+            return 1;
+        }
+        int character_constant = next(lex);
+        if(character_constant == -1 || character_constant == 0)
+		{
+            printf("unexpected end of file\n");
+			return 1;
+		}
+		assert(character_constant > 0 && character_constant <= 0xff);
+        tk->integer = character_constant; //TODO: add support for \0 \hex and other stuff
+        if(next_check(lex, '\''))
+        {
+            printf("expecting closing ' for character constant\n");
+            //expected closing "
+            return 1;
+        }
+    } break;
 
     case '#':
-	case '\'':
 	case '{':
 	case '}':
 	case '[':
@@ -281,6 +304,20 @@ retry:
             tk->type = TK_RETURN;
         else if(!strcmp(s, "break"))
             tk->type = TK_BREAK;
+        else if(!strcmp(s, "char"))
+            tk->type = TK_T_CHAR;
+        else if(!strcmp(s, "short"))
+            tk->type = TK_T_SHORT;
+        else if(!strcmp(s, "int"))
+            tk->type = TK_T_INT;
+        else if(!strcmp(s, "float"))
+            tk->type = TK_T_FLOAT;
+        else if(!strcmp(s, "double"))
+            tk->type = TK_T_DOUBLE;
+        else if(!strcmp(s, "void"))
+            tk->type = TK_T_VOID;
+        else if(!strcmp(s, "__emit"))
+            tk->type = TK_EMIT;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);
 	    } else

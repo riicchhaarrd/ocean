@@ -3,23 +3,32 @@
 
 #include "types.h"
 #include "rhd/heap_string.h"
+#include "data_type.h"
 
 enum REGISTER
 {
     EAX,
-    EBX,
     ECX,
     EDX,
-    ESI,
+    EBX,
     ESP,
     EBP,
-    EIP
+    ESI,
+    EDI
+};
+
+enum
+{
+    IMM32 = 4,
+    IMM16 = 2,
+    IMM8 = 1
 };
 
 struct variable
 {
     int offset;
     int is_param;
+    struct ast_node *data_type_node;
 };
 
 struct function
@@ -27,7 +36,7 @@ struct function
     int location;
     const char *name;
     struct hash_map *variables;
-    int localsize;
+    int localvariablesize;
 };
 
 enum RELOC_TYPE
@@ -55,5 +64,9 @@ struct compile_context
 	heap_string instr;
 
     struct function *function;
+
+    intptr_t registers[8];
+    int operand_size;
+    int register_size;
 };
 #endif

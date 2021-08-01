@@ -2,7 +2,7 @@
 #define AST_H
 #include <stdio.h>
 #include <stdbool.h>
-
+#include "data_type.h"
 
 #define ENUM_BEGIN(typ) enum typ {
 #define ENUM(nam) nam
@@ -144,11 +144,58 @@ struct ast_address_of
     struct ast_node *value;
 };
 
+struct ast_member_expr
+{
+    struct ast_node *object;
+    struct ast_node *property;
+    int computed; //unused atm
+};
+
+/* int,char,float,double etc...*/
+struct ast_primitive_data_type
+{
+    int primitive_type;
+};
+
+struct ast_struct_data_type
+{
+//TODO: FIXME
+};
+
+struct ast_array_data_type
+{
+    struct ast_node *data_type; //can be either primitive, array or a struct e.g AoS
+    int array_size;
+    //struct ast_array_data_type *next;
+};
+
+struct ast_pointer_data_type
+{
+    struct ast_node *data_type;
+};
+
+struct ast_variable_decl
+{
+    struct ast_node *id;
+    struct ast_node *data_type;
+};
+
+struct ast_dereference
+{
+    struct ast_node *value;
+};
+
+struct ast_emit
+{
+    int opcode;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
 	enum AST_NODE_TYPE type;
     int start, end;
+    int rvalue;
     union
     {
         struct ast_block_stmt block_stmt_data;
@@ -165,6 +212,13 @@ struct ast_node
         struct ast_program program_data;
         struct ast_return_stmt return_stmt_data;
         struct ast_address_of address_of_data;
+        struct ast_member_expr member_expr_data;
+        struct ast_variable_decl variable_decl_data;
+        struct ast_dereference dereference_data;
+        struct ast_primitive_data_type primitive_data_type_data;
+        struct ast_array_data_type array_data_type_data;
+        struct ast_pointer_data_type pointer_data_type_data;
+        struct ast_emit emit_data;
     };
 };
 

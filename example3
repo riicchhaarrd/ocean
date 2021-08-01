@@ -1,0 +1,21 @@
+function test()
+{
+    char a[64];
+    a[0] = 'h';
+    a[1] = 'e';
+    a[2] = 'l';
+    a[3] = 'l';
+    a[4] = 'o';
+    a[5] = 10;
+    a[6] = 0;
+
+    write(1, a, 7);
+    exit(0);
+}
+
+function main()
+{
+    int3();
+    int3();
+    test();
+}
