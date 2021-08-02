@@ -193,6 +193,7 @@ struct ast_variable_decl
 {
     struct ast_node *id;
     struct ast_node *data_type;
+    struct ast_node *initializer_value;
 };
 
 struct ast_dereference

@@ -742,6 +742,7 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
 		decl_node->variable_decl_data.id = id;
 		decl_node->variable_decl_data.data_type = type_decl;
+        decl_node->variable_decl_data.initializer_value = NULL;
 
 		if ( !accept( ctx, '[' ) )
 		{
@@ -776,7 +777,20 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 				array_type_node = new_node;
 			}
 		}
-        *out_decl_node = decl_node;
+
+        //initializer value
+        if(!accept(ctx, '='))
+		{
+            struct ast_node *initializer_value = expression(ctx);
+            if(!initializer_value)
+			{
+                debug_printf("expected initializer value after =\n");
+                return NULL;
+			}
+            decl_node->variable_decl_data.initializer_value = initializer_value;
+		}
+
+		*out_decl_node = decl_node;
         return 0;
 	}
     *out_decl_node = NULL;
