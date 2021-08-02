@@ -34,13 +34,17 @@ enum TOKEN_TYPE
     TK_T_DOUBLE,
     TK_T_NUMBER,
     TK_T_VOID,
-    TK_T_SIZEOF,
+
+    TK_CONST,
+    TK_SIZEOF,
     
     TK_LSHIFT,
     TK_RSHIFT,
     TK_EQUAL,
+    TK_NOT_EQUAL,
     TK_IF,
     TK_FOR,
+    TK_WHILE,
     TK_FUNCTION,
     TK_RETURN,
     TK_BREAK,

@@ -121,6 +121,12 @@ struct ast_for_stmt
     struct ast_node *body;
 };
 
+struct ast_while_stmt
+{
+    struct ast_node *test;
+    struct ast_node *body;
+};
+
 struct ast_function_decl
 {
     struct ast_node *id;
@@ -151,9 +157,17 @@ struct ast_member_expr
     int computed; //unused atm
 };
 
+enum TYPE_QUALIFIER
+{
+    TQ_NONE = 0,
+    TQ_CONST = 1,
+    TQ_VOLATILE = 2
+};
+
 /* int,char,float,double etc...*/
 struct ast_primitive_data_type
 {
+    int qualifiers;
     int primitive_type;
 };
 
@@ -171,6 +185,7 @@ struct ast_array_data_type
 
 struct ast_pointer_data_type
 {
+    int qualifiers;
     struct ast_node *data_type;
 };
 
@@ -195,6 +210,13 @@ struct ast_sizeof
     struct ast_node *subject;
 };
 
+struct ast_ternary_expr
+{
+    struct ast_node *condition;
+    struct ast_node *consequent;
+    struct ast_node *alternative;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -213,6 +235,7 @@ struct ast_node
         struct ast_function_call_expr call_expr_data;
         struct ast_if_stmt if_stmt_data;
         struct ast_for_stmt for_stmt_data;
+        struct ast_while_stmt while_stmt_data;
         struct ast_function_decl func_decl_data;
         struct ast_program program_data;
         struct ast_return_stmt return_stmt_data;
@@ -225,6 +248,7 @@ struct ast_node
         struct ast_pointer_data_type pointer_data_type_data;
         struct ast_emit emit_data;
         struct ast_sizeof sizeof_data;
+        struct ast_ternary_expr ternary_expr_data;
     };
 };
 

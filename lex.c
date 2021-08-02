@@ -265,6 +265,14 @@ retry:
             return 1;
         }
     } break;
+    
+	case '!':
+        if(!next_check(lex, '='))
+        {
+            tk->type = TK_NOT_EQUAL;
+            return 0;
+        }
+        break;
 
     case '#':
 	case '{':
@@ -272,8 +280,8 @@ retry:
 	case '[':
 	case ']':
 	case '&':
-	case '!':
 	case '(':
+    case '?':
 	case ')':
 	case ';':
 	case ':':
@@ -296,6 +304,8 @@ retry:
 		//check whether this ident is a special ident
 		if(!strcmp(s, "for"))
 		    tk->type = TK_FOR;
+		else if(!strcmp(s, "while"))
+		    tk->type = TK_WHILE;
 		else if(!strcmp(s, "if"))
 		    tk->type = TK_IF;
         else if(!strcmp(s, "function"))
@@ -316,8 +326,10 @@ retry:
             tk->type = TK_T_DOUBLE;
         else if(!strcmp(s, "void"))
             tk->type = TK_T_VOID;
+        else if(!strcmp(s, "const"))
+            tk->type = TK_CONST;
         else if(!strcmp(s, "sizeof"))
-            tk->type = TK_T_SIZEOF;
+            tk->type = TK_SIZEOF;
         else if(!strcmp(s, "__emit"))
             tk->type = TK_EMIT;
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
