@@ -1,9 +1,0 @@
-function main()
-{
-    int i = 0;
-    while(i < 10)
-    {
-        write(1, "hey\n", 5);
-        i += 1;
-    }
-}
