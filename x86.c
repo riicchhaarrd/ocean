@@ -1191,6 +1191,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     {
         struct ast_node *id = n->variable_decl_data.id;
         struct ast_node *data_type_node = n->variable_decl_data.data_type;
+        struct ast_node *iv = n->variable_decl_data.initializer_value;
         assert(id->type == AST_IDENTIFIER);
         const char *variable_name = id->identifier_data.name;
 
@@ -1202,7 +1203,16 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         struct variable tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
         hash_map_insert( ctx->function->variables, variable_name, tv );
-    } break;
+
+        if(iv)
+		{
+            struct ast_node c = { .type = AST_ASSIGNMENT_EXPR };
+            c.assignment_expr_data.lhs = id;
+            c.assignment_expr_data.rhs = iv;
+            c.assignment_expr_data.operator = '=';
+            process(ctx, &c);
+		}
+	} break;
 
     case AST_EXIT:
     {
