@@ -66,7 +66,5 @@ struct compile_context
     struct function *function;
 
     intptr_t registers[8];
-    int operand_size;
-    int register_size;
 };
 #endif

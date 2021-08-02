@@ -283,9 +283,16 @@ static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const c
 
     //TODO: FIXME reloc the register we're keeping track of aswell to the correct to be determined memory location
     ctx->registers[reg] = (intptr_t)str;
-    
-	int sz = strlen( str ) + 1;
-	int to = add_data( ctx, (void*)str, sz );
+    int to, sz;
+    if(strlen(str) > 0)
+	{
+		sz = strlen( str ) + 1;
+		to = add_data( ctx, (void*)str, sz );
+	} else
+	{
+		sz = 0;
+        to = 0;
+	}
 
 	// TODO: FIXME make it cleaner and add just a function call before the placeholder inject/xref something
 	// and make it work with any type of data so it can go into the .data segment
@@ -301,9 +308,40 @@ static intptr_t register_value(struct compile_context *ctx, enum REGISTER reg)
     return ctx->registers[reg];
 }
 
+static struct ast_node *identifier_data_node(struct compile_context *ctx, struct ast_node *n)
+{
+    assert(n->type == AST_IDENTIFIER);
+    struct variable *var = hash_map_find(ctx->function->variables, n->identifier_data.name);
+    assert(var);
+    return var->data_type_node;
+}
+
+static int data_type_operand_size(struct compile_context *ctx, struct ast_node *n, int ptr)
+{
+	switch ( n->type )
+	{
+	// not a datatype, but we'll resolve it
+	case AST_IDENTIFIER:
+        return data_type_operand_size(ctx, identifier_data_node(ctx, n), ptr);
+
+	case AST_PRIMITIVE_DATA_TYPE:
+		return primitive_data_type_size( n->primitive_data_type_data.primitive_type );
+
+	case AST_POINTER_DATA_TYPE:
+        if(ptr)
+            return IMM32;
+		return primitive_data_type_size( n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type );
+
+	case AST_ARRAY_DATA_TYPE:
+		return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type );
+	}
+	debug_printf( "unhandled data type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
+	return 0;
+}
+
+static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
 static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 {
-    ctx->operand_size = IMM32;
     switch(n->type)
 	{
 	case AST_LITERAL:
@@ -330,10 +368,22 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
 		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
 		assert( var );
         int offset = var->is_param ? 8 + var->offset : 0xfc - var->offset;
-		// mov r32,[ebp - offset]
-		db( ctx, 0x8b );
-		db( ctx, 0x45 + 8 * reg );
-		db( ctx, offset );
+        switch(var->data_type_node->type)
+		{
+        case AST_ARRAY_DATA_TYPE:
+			// lea r32,[ebp - offset]
+			db( ctx, 0x8d );
+			db( ctx, 0x45 + 8 * reg );
+			db( ctx, offset );
+			break;
+            
+        default:
+			// mov r32,[ebp - offset]
+			db( ctx, 0x8b );
+			db( ctx, 0x45 + 8 * reg );
+			db( ctx, offset );
+            break;
+		}
 	} break;
 
     case AST_BIN_EXPR:
@@ -341,31 +391,15 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
         struct ast_node *lhs = n->bin_expr_data.lhs;
         struct ast_node *rhs = n->bin_expr_data.rhs;
 
-        //eax should still be stored leftover
-        if(lhs->type == AST_LITERAL)
-        {
-            //mov eax,imm32
-            db(ctx, 0xb8);
-            dd(ctx, lhs->literal_data.integer);
-        } else
-            process(ctx, lhs);
+        rvalue(ctx, EAX, lhs);
         
-        if(rhs->type == AST_LITERAL)
-        {
-            //mov ecx,imm32
-            db(ctx, 0xb9);
-            dd(ctx, rhs->literal_data.integer);
-        } else
-        {
-            //push eax
-            db(ctx, 0x50);
-            process(ctx, rhs);
-            //mov ecx,eax
-            db(ctx, 0x89);
-            db(ctx, 0xc1);
-            //pop eax
-            db(ctx, 0x58);
-        }
+        push( ctx, EAX );
+		rvalue( ctx, EAX, rhs );
+		// mov ecx,eax
+		db( ctx, 0x89 );
+		db( ctx, 0xc1 );
+        
+		pop( ctx, EAX );
 
         //xor edx,edx
         db(ctx, 0x31);
@@ -527,6 +561,56 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
             db(ctx, 0xc0);
             
             break;
+            
+        case TK_EQUAL:
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //jne <relative offset>
+            db(ctx, 0x75);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);            
+            break;
+            
+        case TK_NOT_EQUAL:
+            //cmp eax,ecx
+            db(ctx, 0x39);
+            db(ctx, 0xc8);
+            
+            //je <relative offset>
+            db(ctx, 0x74);
+            db(ctx, 0x5);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);
+            
+            //inc eax
+            db(ctx, 0x40);
+            
+            //jmp
+            db(ctx, 0xeb);
+            db(ctx, 0x02);
+            
+            //xor eax,eax
+            db(ctx, 0x31);
+            db(ctx, 0xc0);            
+            break;
 
         default:
             printf("unhandled operator (%d) %c\n", n->bin_expr_data.operator, n->bin_expr_data.operator);
@@ -566,6 +650,136 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
         dd(ctx, sz);
 	} break;
 
+    case AST_MEMBER_EXPR:
+    {
+        struct ast_node *object = n->member_expr_data.object;
+        struct ast_node *property = n->member_expr_data.property;
+        rvalue(ctx, EBX, object);
+
+        struct ast_node *dn = identifier_data_node(ctx, object);
+        int dt = dn->type;
+        assert(dt == AST_ARRAY_DATA_TYPE || dt == AST_POINTER_DATA_TYPE);
+        int os = data_type_operand_size(ctx, dn, 0);
+        
+        rvalue( ctx, reg, n->member_expr_data.property );
+        add( ctx, EBX, reg );
+		switch ( os )
+		{
+		case IMM32:
+			// mov eax, [ebx]
+			db( ctx, 0x8b );
+			db( ctx, 0x03 );
+			break;
+		case IMM8:
+			// movzx eax, byte [ebx]
+			db( ctx, 0x0f );
+			db( ctx, 0xb6 );
+			db( ctx, 0x03 );
+			break;
+		default:
+			debug_printf( "unhandled regsz for []\n" );
+			exit( 1 );
+			break;
+		}
+	} break;
+    
+    case AST_UNARY_EXPR:
+    {
+        struct ast_node *arg = n->unary_expr_data.argument;
+        if(arg->type == AST_LITERAL)
+        {
+            switch(n->unary_expr_data.operator)
+            {
+            case '-':
+                //neg eax
+                //db(ctx, 0xf7);
+                //db(ctx, 0xd8);
+                
+                //mov eax,imm32
+                db(ctx, 0xb8);
+                dd(ctx, -arg->literal_data.integer);
+                break;
+                
+            case '+':
+                //mov eax,imm32
+                db(ctx, 0xb8);
+                dd(ctx, arg->literal_data.integer);
+                break;
+
+            case '!':
+                //mov eax,imm32
+                db(ctx, 0xb8);
+                dd(ctx, !arg->literal_data.integer);
+                break;
+                
+            case '~':
+                //mov eax,imm32
+                db(ctx, 0xb8);
+                dd(ctx, ~arg->literal_data.integer);
+                break;
+                
+            default:
+                printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
+                break;
+            }
+        } else
+        {
+            process(ctx, arg);
+            switch(n->unary_expr_data.operator)
+            {
+            case '-':
+                //neg eax
+                db(ctx, 0xf7);
+                db(ctx, 0xd8);
+                break;
+            case '!':
+            case '~':
+                //not eax
+                db(ctx, 0xf7);
+                db(ctx, 0xd0);
+                if(n->unary_expr_data.operator=='!')
+                {
+                    //and eax,1
+					db(ctx, 0x83);
+					db(ctx, 0xe0);
+					db(ctx, 0x01);
+                }
+                break;
+                
+            default:
+                printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
+                break;
+            }
+        }
+    } break;
+
+	case AST_FUNCTION_CALL_EXPR:
+	{
+		struct ast_node** args = n->call_expr_data.arguments;
+		int numargs = n->call_expr_data.numargs;
+		struct ast_node* callee = n->call_expr_data.callee;
+
+		if ( callee->type == AST_IDENTIFIER )
+		{
+			int ret = function_call_ident( ctx, callee->identifier_data.name, args, numargs );
+			if ( ret )
+			{
+				FIXME( "cannot find function '%s'\n", callee->identifier_data.name );
+			}
+		}
+		else
+		{
+			FIXME( "unhandled function call expression callee type" );
+		}
+	}
+	break;
+    
+    case AST_ADDRESS_OF:
+    {
+        assert(n->address_of_data.value->type == AST_IDENTIFIER);
+        load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
+    } break;
+
 	default:
         debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         return 1;
@@ -575,7 +789,7 @@ static int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_nod
 
 //locator value, can be local variable, global variable, array offset or any other valid lvalue
 static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
-{
+{   
     switch(n->type)
 	{
     case AST_IDENTIFIER:
@@ -583,56 +797,28 @@ static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_no
 		const char* variable_name = n->identifier_data.name;
 		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
 		assert( var );
-		int as_pointer = data_type_pass_by_reference( var->data_type_node );
         struct ast_node *variable_type = var->data_type_node;
         int offset = var->is_param ? 8 + var->offset : 0xfc - var->offset;
-        if(as_pointer || !var->is_param)
-		{
-			// lea r32,[ebp - offset]
-			db( ctx, 0x8d );
-			db( ctx, 0x45 + 8 * reg );
-            db( ctx, offset );
-		} else
-		{
-			// mov r32,[ebp - offset]
-			db( ctx, 0x8b );
-			db( ctx, 0x45 + 8 * reg );
-			db( ctx, offset );
-		}
-
-        switch(variable_type->type)
-		{
-        case AST_PRIMITIVE_DATA_TYPE:
-            ctx->register_size = primitive_data_type_size(variable_type->primitive_data_type_data.primitive_type);
-            break;
-        case AST_POINTER_DATA_TYPE:
-            ctx->register_size = primitive_data_type_size(variable_type->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type);
-            break;
-        case AST_ARRAY_DATA_TYPE:
-            //TODO: fix multidimensional arrays
-            assert(variable_type->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE);
-            ctx->register_size = primitive_data_type_size(variable_type->array_data_type_data.data_type->primitive_data_type_data.primitive_type);
-            break;
-        default:
-            debug_printf("unhandled data type '%s'\n", AST_NODE_TYPE_to_string(variable_type->type));
-            break;
-		}
         
-        assert(ctx->register_size > 0);
+		// lea r32,[ebp - offset]
+		db( ctx, 0x8d );
+		db( ctx, 0x45 + 8 * reg );
+		db( ctx, offset );
         
 		// load_variable( ctx, reg, 1, n, 0 );
 	} break;
+    
 	case AST_MEMBER_EXPR:
 	{
 		// TODO: FIXME for multidimensional arrays
 		struct ast_node* object = n->member_expr_data.object;
+        push(ctx, EAX);
 		lvalue( ctx, reg, object );
-        int tmp = ctx->register_size;
 		rvalue( ctx, EAX, n->member_expr_data.property );
-		if ( register_value( ctx, EAX ) > 0 )
-			add( ctx, EBX, EAX );
-        ctx->register_size = tmp;
+        add( ctx, EBX, EAX );
+        pop(ctx, EAX);
 	} break;
+    
     default:
         debug_printf("unhandled lvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         break;
@@ -860,146 +1046,82 @@ static void process(struct compile_context *ctx, struct ast_node *n)
                 process(ctx, (*it));
         } );
     } break;
-    
-    case AST_IDENTIFIER:
+
+    case AST_WHILE_STMT:
 	{
-        load_variable(ctx, EAX, 0, n, 0);
-	} break;
-    case AST_LITERAL:        
-        //mov eax,imm32
-        switch(n->literal_data.type)
-        {
-        case LITERAL_INTEGER:
-            db(ctx, 0xb8);
-            dd(ctx, n->literal_data.integer);
-            break;
-        case LITERAL_STRING:
-        {
-            db(ctx, 0xb8);
-            int from = instruction_position(ctx);
-            dd(ctx, 0xcccccccc); //placeholder
-            const char *str = n->literal_data.string;
-            int sz = strlen(str) + 1;
-            int to = add_data(ctx, (void*)str, sz);
-            
-            //TODO: FIXME make it cleaner and add just a function call before the placeholder inject/xref something
-            //and make it work with any type of data so it can go into the .data segment
-
-            struct relocation reloc = {
-                .from = from,
-                .to = to,
-                .size = sz,
-                .type = RELOC_DATA
-            };
-            linked_list_prepend(ctx->relocations, reloc);
-        } break;
-        default:
-            perror("unhandled literal");
-            break;
-        }
-        break;
-    case AST_UNARY_EXPR:
-    {
-        struct ast_node *arg = n->unary_expr_data.argument;
-        if(arg->type == AST_LITERAL)
-        {
-            switch(n->unary_expr_data.operator)
-            {
-            case '-':
-                //neg eax
-                //db(ctx, 0xf7);
-                //db(ctx, 0xd8);
-                
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, -arg->literal_data.integer);
-                break;
-                
-            case '+':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, arg->literal_data.integer);
-                break;
-
-            case '!':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, !arg->literal_data.integer);
-                break;
-                
-            case '~':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, ~arg->literal_data.integer);
-                break;
-                
-            default:
-                printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
-                break;
-            }
-        } else
-        {
-            process(ctx, arg);
-            switch(n->unary_expr_data.operator)
-            {
-            case '-':
-                //neg eax
-                db(ctx, 0xf7);
-                db(ctx, 0xd8);
-                break;
-            case '!':
-            case '~':
-                //not eax
-                db(ctx, 0xf7);
-                db(ctx, 0xd0);
-                if(n->unary_expr_data.operator=='!')
-                {
-                    //and eax,1
-					db(ctx, 0x83);
-					db(ctx, 0xe0);
-					db(ctx, 0x01);
-                }
-                break;
-                
-            default:
-                printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
-                break;
-            }
-        }
-    } break;
-
-    case AST_ADDRESS_OF:
-    {
-        assert(n->address_of_data.value->type == AST_IDENTIFIER);
-        load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
-    } break;
-
-    case AST_FOR_STMT:
-    {
-        process(ctx, n->for_stmt_data.init);
-        
         int pos = instruction_position(ctx);
-        process(ctx, n->for_stmt_data.test);
-        //test eax,eax
-        db(ctx, 0x85);
-        db(ctx, 0xc0);
+        process(ctx, n->while_stmt_data.test);
         
-        //jz rel32
-        int jz_pos = instruction_position(ctx); //jmp_pos + 2 = new_pos
-        db(ctx, 0x0f);
-        db(ctx, 0x84);
-        dd(ctx, 0x0); //placeholder
-
-        process(ctx, n->for_stmt_data.body);
-        process(ctx, n->for_stmt_data.update);
+		// test eax,eax
+		db( ctx, 0x85 );
+		db( ctx, 0xc0 );
+        
+		// jz rel32
+		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
+		db( ctx, 0x0f );
+		db( ctx, 0x84 );
+		dd( ctx, 0x0 ); // placeholder
+        process(ctx, n->while_stmt_data.body);
         int tmp = instruction_position(ctx);
         
         //jmp relative
         db(ctx, 0xe9);
         dd(ctx, pos - tmp - 5);
         
-        set32(ctx, jz_pos + 2, instruction_position(ctx) - jz_pos - 6);
-    } break;
+        set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
+	} break;
+
+	case AST_FOR_STMT:
+    {
+        if(n->for_stmt_data.init)
+            process(ctx, n->for_stmt_data.init);
+        
+        int pos = instruction_position(ctx);
+        if(n->for_stmt_data.test)
+		{
+			process( ctx, n->for_stmt_data.test );
+			// test eax,eax
+			db( ctx, 0x85 );
+			db( ctx, 0xc0 );
+		} else
+		{
+			db( ctx, 0x90 );
+			db( ctx, 0x90 );
+		}
+		// jz rel32
+		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
+
+		if(n->for_stmt_data.test)
+		{
+			db( ctx, 0x0f );
+			db( ctx, 0x84 );
+			dd( ctx, 0x0 ); // placeholder
+		} else
+		{
+			db( ctx, 0x90 );
+			db( ctx, 0x90 );
+            
+			db( ctx, 0x90 );
+			db( ctx, 0x90 );
+			db( ctx, 0x90 );
+			db( ctx, 0x90 );
+		}
+
+		if(n->for_stmt_data.body)
+            process(ctx, n->for_stmt_data.body);
+        if(n->for_stmt_data.update)
+            process(ctx, n->for_stmt_data.update);
+        int tmp = instruction_position(ctx);
+        
+        //jmp relative
+        db(ctx, 0xe9);
+        dd(ctx, pos - tmp - 5);
+        
+        if(n->for_stmt_data.test)
+		{
+			set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
+		}
+	} break;
 
     case AST_ASSIGNMENT_EXPR:
     {
@@ -1034,12 +1156,13 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
         case '=':
         {
+			int os = data_type_operand_size( ctx, lhs, 1 );
             push(ctx, EAX);
-            lvalue(ctx, EBX, lhs);
+			lvalue(ctx, EBX, lhs);
             pop(ctx, EAX);
 
             //TODO: fix hardcoded EBX
-            switch(ctx->register_size)
+            switch(os)
 			{
 			case IMM32:
 				// mov [ebx],eax
@@ -1052,7 +1175,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 				db( ctx, 0x03 );
                 break;
             default:
-                debug_printf("unhandled register size %d\n", ctx->register_size);
+                debug_printf("unhandled operand size %d\n", os);
                 exit(1);
                 break;
 			}
@@ -1063,36 +1186,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             break;
         }
     } break;
-
-    case AST_MEMBER_EXPR:
-    {
-        struct ast_node *object = n->member_expr_data.object;
-        struct ast_node *property = n->member_expr_data.property;
-        if(object->type == AST_IDENTIFIER)
-		{
-            process(ctx, property);
-            load_variable(ctx, EBX, 1, object, 0);
-            //add ebx, eax
-            db(ctx, 0x01);
-            db(ctx, 0xc3);
-		} else if(object->type == AST_MEMBER_EXPR)
-		{
-            process(ctx, object);
-            //should be in ebx now
-            push(ctx, EBX);
-            
-            process(ctx, property);
-            //should be in eax now
-
-            pop(ctx, EBX);
-
-            //finally add them together
-            //add ebx, eax
-            db(ctx, 0x01);
-            db(ctx, 0xc3);
-		} else
-            perror("unhandled member expression");
-	} break;
 
     case AST_VARIABLE_DECL:
     {
@@ -1110,25 +1203,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         struct variable tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
         hash_map_insert( ctx->function->variables, variable_name, tv );
     } break;
-
-    case AST_FUNCTION_CALL_EXPR:
-    {
-        struct ast_node **args = n->call_expr_data.arguments;
-        int numargs = n->call_expr_data.numargs;
-        struct ast_node *callee = n->call_expr_data.callee;
-
-        if(callee->type == AST_IDENTIFIER)
-		{
-            int ret = function_call_ident(ctx, callee->identifier_data.name, args, numargs);
-            if(ret)
-			{
-                FIXME("cannot find function '%s'\n", callee->identifier_data.name);
-			}
-		} else
-		{
-            FIXME("unhandled function call expression callee type");
-		}
-	} break;
 
     case AST_EXIT:
     {
@@ -1153,7 +1227,8 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     ctx->relocations = linked_list_create(struct relocation);
     ctx->functions = linked_list_create(struct function);
     ctx->data = NULL;
-    ctx->operand_size = ctx->register_size = 0;
+    //empty string
+    heap_string_push(&ctx->data, 0);
 
     memset(ctx->registers, 0, sizeof(ctx->registers));
 

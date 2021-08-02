@@ -133,17 +133,37 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
     return n;
 }
 
+static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
+{
+    *qualifiers = TQ_NONE;
+    if(!accept(ctx, TK_CONST))
+        *qualifiers |= TQ_CONST;
+    else
+        return 1;
+    return 0;
+}
+
 static struct ast_node *type_declaration(struct ast_context *ctx)
 {
     struct ast_node *data_type_node = NULL;
+
+    int pre_qualifiers = TQ_NONE;
+
+    //TODO: implement const/volatile etc and other qualifiers
+    type_qualifiers(ctx, &pre_qualifiers);
+    
 	if ( !accept( ctx, TK_T_CHAR ) || !accept( ctx, TK_T_SHORT ) || !accept( ctx, TK_T_INT ) ||
 		 !accept( ctx, TK_T_FLOAT ) || !accept( ctx, TK_T_DOUBLE ) || !accept( ctx, TK_T_NUMBER ) || !accept(ctx, TK_T_VOID))
 	{
 		int primitive_type = ctx->current_token->type - TK_T_CHAR;
+        
+        int post_qualifiers = TQ_NONE;
+        type_qualifiers(ctx, &post_qualifiers);
         int is_pointer = !accept(ctx, '*');
 
 		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
 		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
+		primitive_type_node->primitive_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
         data_type_node = primitive_type_node;
 
         if(is_pointer)
@@ -222,7 +242,7 @@ static struct ast_node *factor(struct ast_context *ctx)
     } else if(!accept(ctx, '-') || !accept(ctx, '+') || !accept(ctx, '!') || !accept(ctx, '~'))
     {
         int operator = ctx->current_token->type;
-        n = factor(ctx);
+        n = expression(ctx);
         if(!n)
         {
             debug_printf("expected rhs... for unary expression %c\n", operator);
@@ -248,7 +268,7 @@ static struct ast_node *factor(struct ast_context *ctx)
 			return NULL;
 		}
         return n;
-    } else if(!accept(ctx, TK_T_SIZEOF))
+    } else if(!accept(ctx, TK_SIZEOF))
     {
         if(accept(ctx, '('))
             return NULL;
@@ -385,7 +405,7 @@ static struct ast_node *relational(struct ast_context *ctx)
     struct ast_node *lhs = bitwise_shift(ctx);
     if(!lhs)
         return NULL;
-    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL))
+    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL) || !accept(ctx, TK_EQUAL) || !accept(ctx, TK_NOT_EQUAL))
     {
         int operator = ctx->current_token->type;
     	struct ast_node *rhs = bitwise_shift(ctx);
@@ -462,9 +482,43 @@ static struct ast_node *bitwise_or(struct ast_context *ctx)
     return lhs;
 }
 
+static struct ast_node *ternary(struct ast_context *ctx)
+{
+    struct ast_node *cond = bitwise_or(ctx);
+    if(!cond)
+        return NULL;
+    
+    if(!accept(ctx, '?'))
+    {
+    	struct ast_node *consequent = bitwise_or(ctx);
+        if(!consequent)
+        {
+			debug_printf("error.... no consquent for ternary operator..\n");
+            return NULL;
+        }
+        if(accept(ctx, ':'))
+		{
+            debug_printf("expected : for ternary operator\n");
+			return NULL;
+		}
+    	struct ast_node *alternative = bitwise_or(ctx);
+        if(!alternative)
+        {
+			debug_printf("error.... no alternative for ternary operator\n");
+            return NULL;
+        }
+		struct ast_node* ternary_node = push_node( ctx, AST_TERNARY_EXPR );
+        ternary_node->ternary_expr_data.condition = cond;
+        ternary_node->ternary_expr_data.consequent = consequent;
+        ternary_node->ternary_expr_data.alternative = alternative;
+        return ternary_node;
+	}
+    return cond;
+}
+
 static struct ast_node *regular_assignment(struct ast_context *ctx)
 {
-    struct ast_node *lhs = bitwise_or(ctx);
+    struct ast_node *lhs = ternary(ctx);
     if(!lhs) return NULL;
 
 	static const int assignment_operators[] = {'=',TK_PLUS_ASSIGN,TK_MINUS_ASSIGN,TK_DIVIDE_ASSIGN,TK_MULTIPLY_ASSIGN,TK_MOD_ASSIGN,TK_AND_ASSIGN,TK_OR_ASSIGN,TK_XOR_ASSIGN};
@@ -473,7 +527,7 @@ static struct ast_node *regular_assignment(struct ast_context *ctx)
         while ( !accept( ctx, assignment_operators[i] ) )
 		{
             int operator = ctx->current_token->type;
-			struct ast_node* rhs = bitwise_or( ctx );
+			struct ast_node* rhs = ternary( ctx );
 			if ( !rhs )
 				return NULL;
 			lhs = assignment_expr( ctx, operator, lhs, rhs );
@@ -641,15 +695,27 @@ static void print_ast(struct ast_node *n, int depth)
     
     case AST_FOR_STMT:
     {
-        printf("init:\n");
-        print_ast(n->for_stmt_data.init, depth + 1);
-        printf("test:\n");
-        print_ast(n->for_stmt_data.test, depth + 1);
-        printf("update:\n");
-        print_ast(n->for_stmt_data.update, depth + 1);
-        printf("body:\n");
-        print_ast(n->for_stmt_data.body, depth + 1);
-    } break;
+        if(n->for_stmt_data.init)
+		{
+			printf( "init:\n" );
+			print_ast( n->for_stmt_data.init, depth + 1 );
+		}
+        if(n->for_stmt_data.test)
+		{
+			printf( "test:\n" );
+			print_ast( n->for_stmt_data.test, depth + 1 );
+		}
+        if(n->for_stmt_data.update)
+		{
+			printf( "update:\n" );
+			print_ast( n->for_stmt_data.update, depth + 1 );
+		}
+        if(n->for_stmt_data.body)
+		{
+			printf( "body:\n" );
+			print_ast( n->for_stmt_data.body, depth + 1 );
+		}
+	} break;
 
 	default:
 		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
@@ -777,6 +843,34 @@ static struct ast_node *statement(struct ast_context *ctx)
             return NULL;
         if_node->if_stmt_data.consequent = block_node;
         return if_node;
+	} else if(!accept(ctx, TK_WHILE))
+	{
+        if(accept(ctx, '('))
+		{
+            debug_printf("expected ( after while\n");
+			return NULL;
+		}
+
+        struct ast_node *test = expression(ctx);
+        if(!test)
+		{
+            debug_printf("expected expression for while\n");
+            return NULL;
+		}
+
+        if(accept(ctx, ')'))
+		{
+            debug_printf("expected ) after while\n");
+			return NULL;
+		}
+		// TODO: FIXME make it clear whether we expect { here or in the block function
+		struct ast_node* block_node = block( ctx );
+		if ( !block_node )
+			return NULL;
+		struct ast_node* while_node = push_node( ctx, AST_WHILE_STMT );
+        while_node->while_stmt_data.body = block_node;
+        while_node->while_stmt_data.test = test;
+        return while_node;
 	} else if(!accept(ctx, TK_FOR))
 	{
         if(accept(ctx, '('))
@@ -784,43 +878,54 @@ static struct ast_node *statement(struct ast_context *ctx)
             debug_printf("expected ( after for\n");
 			return NULL;
 		}
-    	struct ast_node *init = expression(ctx);
-        if(!init)
-		{
-            debug_printf("invalid init expression in for statement block\n");
-            return NULL;
-		}
+
+        struct ast_node *init, *test, *update;
+        init = test = update = NULL;
         
         if(accept(ctx, ';'))
-		{
-            debug_printf("expected ; after expression\n");
-			return NULL;
+        {
+			init = expression( ctx );
+			if ( !init )
+			{
+				debug_printf( "invalid init expression in for statement block\n" );
+				return NULL;
+			}
+            
+			if ( accept( ctx, ';' ) )
+			{
+				debug_printf( "expected ; after expression\n" );
+				return NULL;
+			}
 		}
-        
-    	struct ast_node *test = expression(ctx);
-        if(!test)
-		{
-            debug_printf("invalid test expression in for statement block\n");
-            return NULL;
-		}
-        
         if(accept(ctx, ';'))
-		{
-            debug_printf("expected ; after expression\n");
-			return NULL;
+        {
+			test = expression( ctx );
+			if ( !test )
+			{
+				debug_printf( "invalid test expression in for statement block\n" );
+				return NULL;
+			}
+
+			if ( accept( ctx, ';' ) )
+			{
+				debug_printf( "expected ; after expression\n" );
+				return NULL;
+			}
 		}
-        
-    	struct ast_node *update = expression(ctx);
-        if(!update)
-		{
-            debug_printf("invalid update expression in for statement block\n");
-            return NULL;
-		}
-        
         if(accept(ctx, ')'))
-		{
-            debug_printf("expected ) after for\n");
-			return NULL;
+        {
+			update = expression( ctx );
+			if ( !update )
+			{
+				debug_printf( "invalid update expression in for statement block\n" );
+				return NULL;
+			}
+
+			if ( accept( ctx, ')' ) )
+			{
+				debug_printf( "expected ) after for\n" );
+				return NULL;
+			}
 		}
 		// TODO: FIXME make it clear whether we expect { here or in the block function
 		struct ast_node* block_node = block( ctx );
