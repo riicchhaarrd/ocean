@@ -138,6 +138,8 @@ static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
     *qualifiers = TQ_NONE;
     if(!accept(ctx, TK_CONST))
         *qualifiers |= TQ_CONST;
+    else if(!accept(ctx, TK_T_UNSIGNED))
+        *qualifiers |= TQ_UNSIGNED;
     else
         return 1;
     return 0;

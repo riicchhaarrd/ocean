@@ -34,6 +34,7 @@ enum TOKEN_TYPE
     TK_T_DOUBLE,
     TK_T_NUMBER,
     TK_T_VOID,
+    TK_T_UNSIGNED,
 
     TK_CONST,
     TK_SIZEOF,

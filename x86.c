@@ -154,6 +154,14 @@ static void add(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
     db(ctx, 0xc0 + b * 9 + a);
 }
 
+static void xor(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
+{
+    assert(a == EAX && b == EAX);
+    ctx->registers[a] ^= ctx->registers[b];
+	db( ctx, 0x31 );
+	db( ctx, 0xc0 + b * 9 + a );
+}
+
 static void sub(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
 {
     ctx->registers[a] += ctx->registers[b];
@@ -199,45 +207,40 @@ static void process(struct compile_context *ctx, struct ast_node *n);
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
     //printf("func call %s\n", function_name);
-    if(!strcmp(function_name, "exit"))
-	{
-        assert(numargs > 0);
-        //maybe later push eax and pop after to preserve the register
-        process(ctx, args[0]);
-        //insert linux syscall exit
-        db(ctx, 0x88); //mov bl, al
-        db(ctx, 0xc3);
-        db(ctx, 0x31); //xor eax,eax
-        db(ctx, 0xc0);
-        db(ctx, 0x40); //inc eax
-        db(ctx, 0xcd); //int 0x80
-        db(ctx, 0x80);
-        return 0;
-	} else if(!strcmp(function_name, "write"))
+    if(!strcmp(function_name, "syscall"))
     {
-        
         int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
-        rvalue(ctx, EAX, args[0]); //fd //ebx
-        push(ctx, EAX);
-        rvalue(ctx, EAX, args[1]); //buf //ecx
-        push(ctx, EAX);
-        rvalue(ctx, EAX, args[2]); //bufsz //edx
-        
-        //mov edx,eax
-        db(ctx, 0x89);
-        db(ctx, 0xc2);
-        
-        pop(ctx, ECX);
-        pop(ctx, EBX);
+        assert(numargs > 0);
 
-        //mov eax,4
-        db(ctx, 0xb8);
-        db(ctx, 0x04);
-        db(ctx, 0x00);
-        db(ctx, 0x00);
-        db(ctx, 0x00);
+        for(int i = numargs - 1; i < 5; ++i)
+		{
+			xor( ctx, EAX, EAX );
+			push( ctx, EAX );
+		}
+		for(int i = 1; i < numargs; ++i)
+		{
+			rvalue( ctx, EAX, args[i] );
+			push( ctx, EAX );
+		}
         
-        db(ctx, 0xcd); //int 0x80
+        //TODO: FIXME arg5 (%ebp) is on the stack //ebp
+        
+        pop(ctx, EBX);
+        pop(ctx, ECX);
+        pop(ctx, EDX);
+        pop(ctx, ESI);
+        pop(ctx, EDI);
+
+        rvalue(ctx, EAX, args[0]);
+
+        /*
+        for(int i = 0; i < numargs; ++i)
+		{
+            printf("arg%d=%s (var=%s)\n",i,AST_NODE_TYPE_to_string(args[i]->type),args[i]->type==AST_IDENTIFIER?args[i]->identifier_data.name : "[n/a]");
+		}
+        */
+
+		db(ctx, 0xcd); //int 0x80
         db(ctx, 0x80);
         return 0;
     } else if(!strcmp(function_name, "int3"))

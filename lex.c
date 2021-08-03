@@ -326,6 +326,8 @@ retry:
             tk->type = TK_T_VOID;
         else if(!strcmp(s, "const"))
             tk->type = TK_CONST;
+        else if(!strcmp(s, "unsigned"))
+            tk->type = TK_T_UNSIGNED;
         else if(!strcmp(s, "sizeof"))
             tk->type = TK_SIZEOF;
         else if(!strcmp(s, "__emit"))

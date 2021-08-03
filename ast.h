@@ -162,7 +162,8 @@ enum TYPE_QUALIFIER
 {
     TQ_NONE = 0,
     TQ_CONST = 1,
-    TQ_VOLATILE = 2
+    TQ_VOLATILE = 2,
+    TQ_UNSIGNED = 4
 };
 
 /* int,char,float,double etc...*/
