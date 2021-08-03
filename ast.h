@@ -133,6 +133,7 @@ struct ast_function_decl
     struct ast_node *parameters[32];
     int numparms;
     struct ast_node *body;
+    struct ast_node *return_data_type;
 };
 
 struct ast_program

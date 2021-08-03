@@ -143,9 +143,9 @@ static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
     return 0;
 }
 
-static struct ast_node *type_declaration(struct ast_context *ctx)
+static int type_declaration(struct ast_context *ctx, struct ast_node **data_type_node)
 {
-    struct ast_node *data_type_node = NULL;
+    *data_type_node = NULL;
 
     int pre_qualifiers = TQ_NONE;
 
@@ -164,16 +164,16 @@ static struct ast_node *type_declaration(struct ast_context *ctx)
 		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
 		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
 		primitive_type_node->primitive_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
-        data_type_node = primitive_type_node;
+        *data_type_node = primitive_type_node;
 
         if(is_pointer)
 		{
 			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
 			pointer_type_node->pointer_data_type_data.data_type = primitive_type_node;
-            data_type_node = pointer_type_node;
+            *data_type_node = pointer_type_node;
 		}
 	}
-    return data_type_node;
+    return *data_type_node ? 0 : ( pre_qualifiers == TQ_NONE ? 0 : 1 );
 }
 
 static struct ast_node *expression(struct ast_context *ctx);
@@ -274,9 +274,15 @@ static struct ast_node *factor(struct ast_context *ctx)
             return NULL;
 
         struct ast_node *so_node = push_node(ctx, AST_SIZEOF);
-
-        struct ast_node *subject = type_declaration(ctx);
-        if(!subject)
+        
+        struct ast_node *subject = NULL;
+        int td = type_declaration(ctx, &subject);
+        if(td)
+		{
+            debug_printf("error in type declaration\n");
+			return NULL;
+		}
+		if(!subject)
 		{
             subject = expression(ctx);
             if(!subject)
@@ -729,8 +735,14 @@ static void print_ast(struct ast_node *n, int depth)
 
 static int variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
 {
-    struct ast_node *type_decl = type_declaration(ctx);
-    if(type_decl)
+    struct ast_node *type_decl = NULL;
+    int td = type_declaration(ctx, &type_decl);
+    if(td)
+	{
+        debug_printf("error in type declaration\n");
+		return 1;
+	}
+	if(type_decl)
     {
         if ( accept( ctx, TK_IDENT ) )
 		{
@@ -1007,13 +1019,24 @@ static struct ast_node *program(struct ast_context *ctx)
     
     while(1)
     {
-        if(!accept(ctx, TK_FUNCTION))
-        {
-            struct ast_node *decl = push_node(ctx, AST_FUNCTION_DECL);
+        if(!accept(ctx, TK_EOF))
+            break;
+        
+		struct ast_node* type_decl = NULL;
+        int td = type_declaration( ctx , &type_decl );
+        if(td)
+		{
+            debug_printf("error in type declaration\n");
+			return NULL;
+		}
+		if ( type_decl )
+		{
+			struct ast_node *decl = push_node(ctx, AST_FUNCTION_DECL);
+            decl->func_decl_data.return_data_type = type_decl;
             decl->func_decl_data.numparms = 0;
             if(accept(ctx, TK_IDENT))
             {
-                debug_printf("expected ident after function keyword\n");
+                debug_printf("expected ident after function\n");
                 return NULL;
             }
             struct ast_node *id = identifier(ctx, ctx->current_token->string);
@@ -1054,8 +1077,14 @@ static struct ast_node *program(struct ast_context *ctx)
                 return NULL;
             decl->func_decl_data.body = block_node;
             linked_list_prepend(program_node->program_data.body, decl);
-        } else break;
-    }
+		}
+		else
+		{
+            //TODO: implement global variables assignment, function prototypes and a preprocessor
+            debug_printf("expected function return type got '%s'\n", token_type_to_string(ctx->current_token->type));
+            return NULL;
+		}
+	}
     return program_node;
 }
 

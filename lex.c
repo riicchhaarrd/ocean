@@ -308,8 +308,6 @@ retry:
 		    tk->type = TK_WHILE;
 		else if(!strcmp(s, "if"))
 		    tk->type = TK_IF;
-        else if(!strcmp(s, "function"))
-            tk->type = TK_FUNCTION;
         else if(!strcmp(s, "return"))
             tk->type = TK_RETURN;
         else if(!strcmp(s, "break"))

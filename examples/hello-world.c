@@ -1,4 +1,4 @@
-function strlen(const char *s)
+int strlen(const char *s)
 {
     int i = 0;
     while(s[i])
@@ -8,12 +8,12 @@ function strlen(const char *s)
     return i;
 }
 
-function print(const char *s)
+void print(const char *s)
 {
     write(1, s, strlen(s) + 1);
 }
 
-function main()
+int main()
 {
     print("hello, world!\n");
     
