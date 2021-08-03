@@ -119,6 +119,7 @@ static int token(struct lexer *lex, struct token *tk)
     int ch;
 retry:
     ch = next(lex);
+    tk->lineno = lex->lineno + 1;
     if(ch == -1)
 		return 1;
     if(ch == 0)
@@ -135,10 +136,11 @@ retry:
 	tk->type = ch;
     switch(ch)
     {
+	case '\n':
+        ++lex->lineno;
 	case ' ':
 	case '\t':
 	case '\r':
-	case '\n':
 	    goto retry;
 
     case '<':

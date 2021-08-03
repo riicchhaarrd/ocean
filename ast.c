@@ -305,7 +305,7 @@ static struct ast_node *factor(struct ast_context *ctx)
 		}
 	} else
     {
-		debug_printf("expected integer.. got %s (%d)\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type);
+		debug_printf("expected integer.. got %s (%d), line = %d\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type, ctx->current_token->lineno);
     }
     return n;
 }
