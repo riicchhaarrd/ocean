@@ -3,7 +3,7 @@ Programming language that compiles into a x86 ELF executable.
 
 # TODO
 
-- [x] basic features of a programming language, conditionals/loops/variables/types
+- [x] basic features of a programming language, conditionals/loops/variables/types/order of precedence e.g (1 + 2) * 3 - 4 / 5 + (6 * 8)
 - [ ] a compiler somewhat resembling C
 - [ ] standard library
 - [ ] other compile targets e.g https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
