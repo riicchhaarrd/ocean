@@ -7,7 +7,7 @@
 
 struct lexer
 {
-    char *buf;
+    const char *buf;
     int bufsz;
     int pos;
     struct token tk;
@@ -347,7 +347,7 @@ retry:
     return 0;
 }
 
-void parse(heap_string data, struct token **tokens_out/*must be free'd*/, int *num_tokens)
+void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *num_tokens)
 {
     *tokens_out = NULL;
 	*num_tokens = 0;

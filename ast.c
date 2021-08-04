@@ -799,7 +799,7 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
             if(!initializer_value)
 			{
                 debug_printf("expected initializer value after =\n");
-                return NULL;
+                return 1;
 			}
             decl_node->variable_decl_data.initializer_value = initializer_value;
 		}
