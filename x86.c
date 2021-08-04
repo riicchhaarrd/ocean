@@ -801,9 +801,14 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
     
     case AST_ADDRESS_OF:
     {
-        assert(n->address_of_data.value->type == AST_IDENTIFIER);
-        rvalue(ctx, EAX, n->address_of_data.value);
-        //load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
+        lvalue(ctx, EBX, n->address_of_data.value);
+        if(reg == EAX)
+		{
+            //mov eax,ebx
+            db(ctx,0x89);
+            db(ctx,0xd8);
+		}
+		//load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
     } break;
 
 	default:
@@ -1145,9 +1150,62 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             db(ctx, 0x29);
             db(ctx, 0x03);
         } break;
-        //TODO: add div,mul,mod and other operators
+        //TODO: add mul and other operators
         
-        case '=':
+        case TK_MOD_ASSIGN:
+		{
+            //mov esi, eax
+            db(ctx,0x89);
+            db(ctx,0xc6);
+
+            //TODO: maybe push esi, incase we trash the register
+            rvalue(ctx, EAX, lhs);
+            
+			// xor edx,edx
+			db( ctx, 0x31 );
+			db( ctx, 0xd2 );
+
+			// idiv esi
+			db( ctx, 0xf7 );
+			db( ctx, 0xfe );
+            
+            push(ctx, EDX);
+			lvalue(ctx, EBX, lhs);
+            pop(ctx, EDX);
+
+			// mov [ebx],edx
+			db( ctx, 0x89 );
+			db( ctx, 0x13 );
+		} break;
+
+
+        case TK_DIVIDE_ASSIGN:
+		{
+            //mov esi, eax
+            db(ctx,0x89);
+            db(ctx,0xc6);
+
+            //TODO: maybe push esi, incase we trash the register
+            rvalue(ctx, EAX, lhs);
+            
+			// xor edx,edx
+			db( ctx, 0x31 );
+			db( ctx, 0xd2 );
+
+			// idiv esi
+			db( ctx, 0xf7 );
+			db( ctx, 0xfe );
+            
+            push(ctx, EAX);
+			lvalue(ctx, EBX, lhs);
+            pop(ctx, EAX);
+
+			// mov [ebx],eax
+			db( ctx, 0x89 );
+			db( ctx, 0x03 );
+		} break;
+
+		case '=':
         {
 			int os = data_type_operand_size( ctx, lhs, 1 );
             push(ctx, EAX);
