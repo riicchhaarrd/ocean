@@ -220,6 +220,12 @@ struct ast_ternary_expr
     struct ast_node *alternative;
 };
 
+struct ast_break_stmt
+{
+    //maybe add break level, nested loops
+    //keep track of which loop node we're in maybe
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -252,6 +258,7 @@ struct ast_node
         struct ast_emit emit_data;
         struct ast_sizeof sizeof_data;
         struct ast_ternary_expr ternary_expr_data;
+        struct ast_break_stmt break_stmt_data;
     };
 };
 

@@ -860,6 +860,26 @@ static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_no
 	}
 }
 
+static struct scope *active_scope(struct compile_context *ctx)
+{
+    if(ctx->scope_index == 0)
+        return NULL;
+    return ctx->scope[ctx->scope_index - 1];
+}
+
+static void enter_scope(struct compile_context *ctx, struct scope *scope)
+{
+    assert(ctx->scope_index + 1 < COUNT_OF(ctx->scope));
+    scope->numbreaks = 0;
+    ctx->scope[ctx->scope_index++] = scope;
+}
+
+static void exit_scope(struct compile_context *ctx)
+{
+    --ctx->scope_index;
+    ctx->scope[ctx->scope_index] = NULL;
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
@@ -1001,6 +1021,8 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 
     case AST_WHILE_STMT:
 	{
+        struct scope scope;
+        enter_scope(ctx, &scope);
         int pos = instruction_position(ctx);
         process(ctx, n->while_stmt_data.test);
         
@@ -1021,10 +1043,26 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         dd(ctx, pos - tmp - 5);
         
         set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
+        for(int i = 0; i < scope.numbreaks; ++i)
+			set32( ctx, scope.breaks[i] + 1, instruction_position( ctx ) - scope.breaks[i] - 5 );
+		exit_scope(ctx);
+	} break;
+
+    case AST_BREAK_STMT:
+	{
+        struct scope *scope = active_scope(ctx);
+        assert(scope);
+        
+		int pos = instruction_position( ctx ); // jmp_pos + 1 = new_pos
+		db( ctx, 0xe9 );
+		dd( ctx, 0x0 ); // placeholder
+		scope->breaks[scope->numbreaks++] = pos;
 	} break;
 
 	case AST_FOR_STMT:
     {
+        struct scope scope;
+        enter_scope(ctx, &scope);
         if(n->for_stmt_data.init)
             process(ctx, n->for_stmt_data.init);
         
@@ -1070,9 +1108,10 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         dd(ctx, pos - tmp - 5);
         
         if(n->for_stmt_data.test)
-		{
 			set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
-		}
+        for(int i = 0; i < scope.numbreaks; ++i)
+			set32( ctx, scope.breaks[i] + 1, instruction_position( ctx ) - scope.breaks[i] - 5 );
+		exit_scope(ctx);
 	} break;
 
     case AST_ASSIGNMENT_EXPR:
@@ -1195,7 +1234,8 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     heap_string_push(&ctx->data, 0);
 
     memset(ctx->registers, 0, sizeof(ctx->registers));
-
+    ctx->scope_index = 0;
+    
     //mov eax,imm32
     db(ctx, 0xb8);
     int from = instruction_position(ctx);

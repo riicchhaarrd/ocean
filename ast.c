@@ -871,6 +871,15 @@ static struct ast_node *statement(struct ast_context *ctx)
             return NULL;
         if_node->if_stmt_data.consequent = block_node;
         return if_node;
+    } else if(!accept(ctx, TK_BREAK))
+    {
+        struct ast_node *break_stmt = push_node(ctx, AST_BREAK_STMT);
+        if(accept(ctx, ';'))
+		{
+            debug_printf("expected ; after break statement\n");
+			return NULL;
+		}
+        return break_stmt;
 	} else if(!accept(ctx, TK_WHILE))
 	{
         if(accept(ctx, '('))

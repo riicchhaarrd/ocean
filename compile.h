@@ -39,6 +39,12 @@ struct function
     int localvariablesize;
 };
 
+struct scope
+{
+    int numbreaks;
+    intptr_t breaks[16]; //TODO: N number of breaks, dynamic array / stack 
+};
+
 enum RELOC_TYPE
 {
     RELOC_CODE,
@@ -66,5 +72,7 @@ struct compile_context
     struct function *function;
 
     intptr_t registers[8];
+    struct scope *scope[16]; //TODO: N number of scopes, dynamic array / stack
+    int scope_index;
 };
 #endif
