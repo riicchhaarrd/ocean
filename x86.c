@@ -362,7 +362,133 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	return 0;
 }
 
-static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+static void ast_handle_assignment_expression( struct compile_context* ctx, struct ast_node* n )
+{
+    push(ctx, EBX);
+	struct ast_node* lhs = n->assignment_expr_data.lhs;
+	struct ast_node* rhs = n->assignment_expr_data.rhs;
+
+	rvalue( ctx, EAX, rhs );
+	// we should now have our result in eax
+
+	switch ( n->assignment_expr_data.operator)
+	{
+	case TK_PLUS_ASSIGN:
+	{
+		push( ctx, EAX );
+		lvalue( ctx, EBX, lhs );
+		// load_variable(ctx, EBX, 1, lhs, 0);
+		pop( ctx, EAX );
+
+		// add [ebx],eax
+		db( ctx, 0x01 );
+		db( ctx, 0x03 );
+	}
+	break;
+	case TK_MINUS_ASSIGN:
+	{
+		push( ctx, EAX );
+		lvalue( ctx, EBX, lhs );
+		// load_variable(ctx, EBX, 1, lhs, 0);
+		pop( ctx, EAX );
+		// sub [ebx],eax
+		db( ctx, 0x29 );
+		db( ctx, 0x03 );
+	}
+	break;
+		// TODO: add mul and other operators
+
+	case TK_MOD_ASSIGN:
+	{
+		// mov esi, eax
+		db( ctx, 0x89 );
+		db( ctx, 0xc6 );
+
+		// TODO: maybe push esi, incase we trash the register
+		rvalue( ctx, EAX, lhs );
+
+		// xor edx,edx
+		db( ctx, 0x31 );
+		db( ctx, 0xd2 );
+
+		// idiv esi
+		db( ctx, 0xf7 );
+		db( ctx, 0xfe );
+
+		push( ctx, EDX );
+		lvalue( ctx, EBX, lhs );
+		pop( ctx, EDX );
+
+		// mov [ebx],edx
+		db( ctx, 0x89 );
+		db( ctx, 0x13 );
+	}
+	break;
+
+	case TK_DIVIDE_ASSIGN:
+	{
+		// mov esi, eax
+		db( ctx, 0x89 );
+		db( ctx, 0xc6 );
+
+		// TODO: maybe push esi, incase we trash the register
+		rvalue( ctx, EAX, lhs );
+
+		// xor edx,edx
+		db( ctx, 0x31 );
+		db( ctx, 0xd2 );
+
+		// idiv esi
+		db( ctx, 0xf7 );
+		db( ctx, 0xfe );
+
+		push( ctx, EAX );
+		lvalue( ctx, EBX, lhs );
+		pop( ctx, EAX );
+
+		// mov [ebx],eax
+		db( ctx, 0x89 );
+		db( ctx, 0x03 );
+	}
+	break;
+
+	case '=':
+	{
+		int os = data_type_operand_size( ctx, lhs, 1 );
+		push( ctx, EAX );
+		lvalue( ctx, EBX, lhs );
+		pop( ctx, EAX );
+
+		// TODO: fix hardcoded EBX
+		switch ( os )
+		{
+		case IMM32:
+			// mov [ebx],eax
+			db( ctx, 0x89 );
+			db( ctx, 0x03 );
+			break;
+		case IMM8:
+			// mov byte ptr [ebx], al
+			db( ctx, 0x88 );
+			db( ctx, 0x03 );
+			break;
+		default:
+			debug_printf( "unhandled operand size %d\n", os );
+			exit( 1 );
+			break;
+		}
+	}
+	break;
+
+	default:
+		printf( "unhandled assignment operator\n" );
+		break;
+	}
+    pop(ctx, EBX);
+}
+
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 {
     switch(n->type)
@@ -648,7 +774,12 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
             
     } break;
 
-    case AST_SIZEOF:
+    case AST_ASSIGNMENT_EXPR:
+	{
+        ast_handle_assignment_expression(ctx, n);
+	} break;
+
+	case AST_SIZEOF:
 	{
         int sz = 0;
         switch(n->sizeof_data.subject->type)
@@ -818,12 +949,12 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
     return 0;
 }
 
-//locator value, can be local variable, global variable, array offset or any other valid lvalue
-static void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
-{   
-    switch(n->type)
+// locator value, can be local variable, global variable, array offset or any other valid lvalue
+void lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
+{
+	switch ( n->type )
 	{
-    case AST_IDENTIFIER:
+	case AST_IDENTIFIER:
 	{
 		const char* variable_name = n->identifier_data.name;
 		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
@@ -1118,125 +1249,6 @@ static void process(struct compile_context *ctx, struct ast_node *n)
 			set32( ctx, scope.breaks[i] + 1, instruction_position( ctx ) - scope.breaks[i] - 5 );
 		exit_scope(ctx);
 	} break;
-
-    case AST_ASSIGNMENT_EXPR:
-    {
-        struct ast_node *lhs = n->assignment_expr_data.lhs;
-        struct ast_node *rhs = n->assignment_expr_data.rhs;
-
-        rvalue(ctx, EAX, rhs);
-        //we should now have our result in eax
-    
-        switch(n->assignment_expr_data.operator)
-        {
-        case TK_PLUS_ASSIGN:
-        {
-            push(ctx, EAX);
-            lvalue(ctx, EBX, lhs);
-            //load_variable(ctx, EBX, 1, lhs, 0);
-            pop(ctx, EAX);
-            
-            //add [ebx],eax
-            db(ctx, 0x01);
-            db(ctx, 0x03);
-        } break;
-        case TK_MINUS_ASSIGN:
-        {
-            push(ctx, EAX);
-            lvalue(ctx, EBX, lhs);
-            //load_variable(ctx, EBX, 1, lhs, 0);
-            pop(ctx, EAX);
-            //sub [ebx],eax
-            db(ctx, 0x29);
-            db(ctx, 0x03);
-        } break;
-        //TODO: add mul and other operators
-        
-        case TK_MOD_ASSIGN:
-		{
-            //mov esi, eax
-            db(ctx,0x89);
-            db(ctx,0xc6);
-
-            //TODO: maybe push esi, incase we trash the register
-            rvalue(ctx, EAX, lhs);
-            
-			// xor edx,edx
-			db( ctx, 0x31 );
-			db( ctx, 0xd2 );
-
-			// idiv esi
-			db( ctx, 0xf7 );
-			db( ctx, 0xfe );
-            
-            push(ctx, EDX);
-			lvalue(ctx, EBX, lhs);
-            pop(ctx, EDX);
-
-			// mov [ebx],edx
-			db( ctx, 0x89 );
-			db( ctx, 0x13 );
-		} break;
-
-
-        case TK_DIVIDE_ASSIGN:
-		{
-            //mov esi, eax
-            db(ctx,0x89);
-            db(ctx,0xc6);
-
-            //TODO: maybe push esi, incase we trash the register
-            rvalue(ctx, EAX, lhs);
-            
-			// xor edx,edx
-			db( ctx, 0x31 );
-			db( ctx, 0xd2 );
-
-			// idiv esi
-			db( ctx, 0xf7 );
-			db( ctx, 0xfe );
-            
-            push(ctx, EAX);
-			lvalue(ctx, EBX, lhs);
-            pop(ctx, EAX);
-
-			// mov [ebx],eax
-			db( ctx, 0x89 );
-			db( ctx, 0x03 );
-		} break;
-
-		case '=':
-        {
-			int os = data_type_operand_size( ctx, lhs, 1 );
-            push(ctx, EAX);
-			lvalue(ctx, EBX, lhs);
-            pop(ctx, EAX);
-
-            //TODO: fix hardcoded EBX
-            switch(os)
-			{
-			case IMM32:
-				// mov [ebx],eax
-				db( ctx, 0x89 );
-				db( ctx, 0x03 );
-				break;
-            case IMM8:
-                //mov byte ptr [ebx], al
-				db( ctx, 0x88 );
-				db( ctx, 0x03 );
-                break;
-            default:
-                debug_printf("unhandled operand size %d\n", os);
-                exit(1);
-                break;
-			}
-        } break;
-        
-        default:
-            printf("unhandled assignment operator\n");
-            break;
-        }
-    } break;
 
     case AST_VARIABLE_DECL:
     {
