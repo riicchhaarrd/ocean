@@ -13,6 +13,14 @@ int getchar()
     return buf[0];
 }
 
+void putchar(int ch)
+{
+    char buf[2];
+    buf[0] = ch;
+    buf[1] = 0;
+    print(buf);
+}
+
 void print_decimal(int d)
 {
     char buf[32];
