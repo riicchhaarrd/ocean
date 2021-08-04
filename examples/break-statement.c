@@ -1,22 +1,5 @@
-int strlen(const char *s)
-{
-    int i = 0;
-    while(s[i])
-    {
-        i+=1;
-    }    
-    return i;
-}
-
-void write(int fd, const char *buf, int len)
-{
-    syscall(4, fd, buf, len);
-}
-
-void print(const char *s)
-{
-    write(1, s, strlen(s) + 1);
-}
+#include <string.h>
+#include <stdio.h>
 
 int main()
 {

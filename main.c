@@ -16,24 +16,8 @@
 
 #include "compile.h"
 
-heap_string read_file( const char* filename )
-{
-	heap_string data = NULL;
-
-	FILE* fp = fopen( filename, "r" );
-	if ( !fp )
-		return data;
-	fseek( fp, 0, SEEK_END );
-	size_t fs = ftell( fp );
-	rewind( fp );
-	data = heap_string_alloc( fs );
-	fread( data, fs, 1, fp );
-	fclose( fp );
-	return data;
-}
-
 // imported functions from other files
-void parse(heap_string, struct token**, int*);
+void parse(const char*, struct token**, int*);
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
 int x86(struct ast_node *head, struct compile_context *ctx);
 
@@ -43,7 +27,9 @@ int main( int argc, char** argv )
 {
     if ( argc < 2 )
 	    return 0;
-    heap_string data = read_file( argv[1] );
+    /* pre.c */
+    heap_string preprocess_file(const char *filename);
+    heap_string data = preprocess_file( argv[1] );
 
     if ( !data )
     {
