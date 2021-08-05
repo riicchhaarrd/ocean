@@ -23,6 +23,7 @@ It does not list every however small it be functionality of C, like statements/e
 	- [ ] operator overloading
 	- [ ] constexpr/consteval from c++ or some #run directive (https://github.com/BSVino/JaiPrimer/blob/master/JaiPrimer.md)
 	- [ ] learn from other similar projects (e.g https://news.ycombinator.com/item?id=27890888)
+	- [ ] array of struct to struct of arrays conversion and vice versa https://en.wikipedia.org/wiki/AoS_and_SoA
 - [ ] target other ISA (instruction set architectures) e.g ARM/x86_64
 - [ ] better error handling / memory cleanup
 - [ ] LLVM or other IR backend (atm just targeting x86 and it's a great learning exercise)
