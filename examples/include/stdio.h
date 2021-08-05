@@ -36,38 +36,6 @@ void print_decimal(int d)
     print(&buf[sizeof(buf) - i - 1]);
 }
 
-//DONE
-///* */ style comments
-//post/pre increment
-//if() without brackets matching till ;
-
-//TODO
-//|| and && expressions
-//preprocessor #define e.g for EOF (-1)
-//'\n' character literals
-//https://en.cppreference.com/w/cpp/language/statements
-//https://stackoverflow.com/questions/51886189/can-c-have-code-in-the-global-scope
-//add global declarations/definitions fix functions in ast https://stackoverflow.com/questions/1410563/what-is-the-difference-between-a-definition-and-a-declaration
-
-char *gets(char *str)
-{
-    int i = 0;
-    while(1)
-	{
-		int c = getchar();
-        if(c == -1) //TODO: replace with EOF
-		{
-			break;
-		}
-		if(c == 20)
-		{
-			break;
-		}
-		str[i] = c;
-        i += 1;
-	}
-}
-
 int printf(const char *s, ...)
 {
 }
