@@ -1,19 +1,29 @@
 # ocean
 Programming language that compiles into a x86 ELF executable.
 
+The main goal at the moment is to create a C compiler, which can atleast compile itself.
+
 # TODO
+In no particular order and may be planned in the near or far future. Not all of them are definitive aswell and may be scrapped if other better structurally sound suggestions / ideas may arise.
+
+It does not list every however small it be functionality of C, like statements/expressions or what may be implemented already or isn't done yet. I may compile a list of those in the future to keep track of what to work on once most of functionality you expect from C has been implemented.
+
+# Short term
 
 - [x] basic features of a programming language, conditionals/loops/variables/types/order of precedence e.g (1 + 2) * 3 - 4 / 5 + (6 * 8)
-- [ ] a compiler somewhat resembling C
 - [ ] standard library
 - [ ] other compile targets e.g https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 - [ ] self-hosting
+- [ ] a working C compiler (excluding any use of GCC/clang specific features like __attribute__ or such)
+
+# Long(er) term
 - [ ] Add new or borrow from other language(s) features ontop of C, deviate away from just C
 	
 	- [ ] defer
 	- [ ] operator overloading
 	- [ ] constexpr/consteval from c++ or some #run directive (https://github.com/BSVino/JaiPrimer/blob/master/JaiPrimer.md)
 	- [ ] learn from other similar projects (e.g https://news.ycombinator.com/item?id=27890888)
+	- [ ] array of struct to struct of arrays conversion and vice versa https://en.wikipedia.org/wiki/AoS_and_SoA
 - [ ] target other ISA (instruction set architectures) e.g ARM/x86_64
 - [ ] better error handling / memory cleanup
 - [ ] LLVM or other IR backend (atm just targeting x86 and it's a great learning exercise)
