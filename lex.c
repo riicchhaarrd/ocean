@@ -222,15 +222,23 @@ retry:
         {
             tk->type = TK_MINUS_ASSIGN;
             return 0;
-        }
-        break;
+        } else if(!next_check(lex, '-'))
+		{
+            tk->type = TK_MINUS_MINUS;
+            return 0;
+		}
+		break;
 	case '+':
         if(!next_check(lex, '='))
         {
             tk->type = TK_PLUS_ASSIGN;
             return 0;
-        }
-        break;
+        } else if(!next_check(lex, '+'))
+		{
+            tk->type = TK_PLUS_PLUS;
+            return 0;
+		}
+		break;
 	case '=':
         if(!next_check(lex, '='))
         {

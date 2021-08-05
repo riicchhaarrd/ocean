@@ -873,23 +873,80 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
                 db(ctx, 0xb8);
                 dd(ctx, ~arg->literal_data.integer);
                 break;
-                
-            default:
+
+			default:
                 printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
                 break;
             }
         } else
         {
-            process(ctx, arg);
             switch(n->unary_expr_data.operator)
             {
+
+            case TK_MINUS_MINUS:
+			{
+				push( ctx, EBX );
+				lvalue( ctx, EBX, arg );
+				if ( n->unary_expr_data.prefix )
+				{
+					// dec [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x0b );
+
+					// mov eax, [ebx]
+					db( ctx, 0x8b );
+					db( ctx, 0x03 );
+				}
+				else
+				{
+					// mov eax, [ebx]
+					db( ctx, 0x8b );
+					db( ctx, 0x03 );
+
+					// dec [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x0b );
+				}
+				pop( ctx, EBX );
+			} break;
+
+			case TK_PLUS_PLUS:
+			{
+				push( ctx, EBX );
+				lvalue( ctx, EBX, arg );
+				if ( n->unary_expr_data.prefix )
+				{
+					// inc [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x03 );
+
+					// mov eax, [ebx]
+					db( ctx, 0x8b );
+					db( ctx, 0x03 );
+				}
+				else
+				{
+					// mov eax, [ebx]
+					db( ctx, 0x8b );
+					db( ctx, 0x03 );
+
+					// inc [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x03 );
+				}
+				pop( ctx, EBX );
+			}
+			break;
+            
             case '-':
+                rvalue(ctx, EAX, arg);
                 //neg eax
                 db(ctx, 0xf7);
                 db(ctx, 0xd8);
                 break;
             case '!':
             case '~':
+                rvalue(ctx, EAX, arg);
                 //not eax
                 db(ctx, 0xf7);
                 db(ctx, 0xd0);

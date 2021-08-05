@@ -67,7 +67,7 @@ static struct ast_node *rvalue_node(struct ast_node *n)
     return n;
 }
 
-static struct ast_node *unary_expr(struct ast_context *ctx, int op, bool prefix, struct ast_node *arg)
+static struct ast_node *unary_expr(struct ast_context *ctx, int op, int prefix, struct ast_node *arg)
 {
     struct ast_node *n = push_node(ctx, AST_UNARY_EXPR);
     n->unary_expr_data.operator = op;
@@ -241,7 +241,7 @@ static struct ast_node *factor(struct ast_context *ctx)
             return NULL;
         }
         return n;
-    } else if(!accept(ctx, '-') || !accept(ctx, '+') || !accept(ctx, '!') || !accept(ctx, '~'))
+    } else if(!accept(ctx, '-') || !accept(ctx, '+') || !accept(ctx, '!') || !accept(ctx, '~') || !accept(ctx, TK_PLUS_PLUS) || !accept(ctx, TK_MINUS_MINUS))
     {
         int operator = ctx->current_token->type;
         n = expression(ctx);
@@ -250,7 +250,7 @@ static struct ast_node *factor(struct ast_context *ctx)
             debug_printf("expected rhs... for unary expression %c\n", operator);
             return NULL;
         }
-        return unary_expr(ctx, operator, true, n);
+        return unary_expr(ctx, operator, 1, n);
     } else if(!accept(ctx, TK_INTEGER))
     {
         n = int_literal(ctx, ctx->current_token->integer);
@@ -310,9 +310,19 @@ static struct ast_node *factor(struct ast_context *ctx)
     return n;
 }
 
-static struct ast_node *array_subscripting(struct ast_context *ctx)
+static struct ast_node *postfix(struct ast_context *ctx)
 {
     struct ast_node *lhs = factor(ctx);
+    if(!lhs)
+        return NULL;
+    if(!accept(ctx, TK_PLUS_PLUS) || !accept(ctx, TK_MINUS_MINUS))
+        return unary_expr(ctx, ctx->current_token->type, 0, lhs);
+    return lhs;
+}
+
+static struct ast_node *array_subscripting(struct ast_context *ctx)
+{
+    struct ast_node *lhs = postfix(ctx);
     if(!lhs)
         return NULL;
     while(!accept(ctx, '['))
