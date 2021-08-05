@@ -13,6 +13,9 @@
 
 //TODO: recursively including files, does not update filepath of the filename
 
+//TODO: change default include path to be more dynamic
+#define INCLUDE_PATH "examples/include/"
+
 struct include_directive
 {
     heap_string path;
@@ -99,8 +102,19 @@ static heap_string filepath(const char* filename)
 	return fp;
 }
 
+enum
+{
+    PRE_OK = 0,
+    PRE_ERR_FILE_NOT_FOUND = -1,
+    PRE_ERR_INCLUDE_NOT_FOUND = -2,
+    PRE_ERR_PARSE_FAILED = -3,
+    PRE_ERR_CIRCULAR_REFERENCE = -4
+};
+
 int preprocess_text( const char *text , heap_string *out_text, int *was_modified, const char *filename )
 {
+    int err = PRE_OK;
+    
     *out_text = NULL;
     *was_modified = 0;
 	struct parse_context ctx =
@@ -167,20 +181,31 @@ int preprocess_text( const char *text , heap_string *out_text, int *was_modified
 
         heap_string data = NULL;
 
+        //TODO: if paths differ or the file being included includes ourself from a different path check the checksum or something else to warn the user/error about circular referencing
         if(strcmp(it->path, filename)) //only read the file and set data when the current file being processed isn't included recursively
 		{
+            //first check locally where the file resides
             heap_string fp = filepath(filename);
             heap_string fullpath = concatenate(fp, it->path);
             //printf("fullpath=%s\n",fullpath);
 			data = heap_string_read_from_text_file( fullpath );
             heap_string_free(&fullpath);
             heap_string_free(&fp);
+
+            if(!data)
+			{
+				// fallback on INCLUDE_PATH
+				fullpath = concatenate( INCLUDE_PATH, it->path );
+				data = heap_string_read_from_text_file( fullpath );
+				heap_string_free( &fullpath );
+			}
 		} else
-            ;//printf("error: circular include file '%s'\n", filename);
+            err = PRE_ERR_CIRCULAR_REFERENCE;//printf("error: circular include file '%s'\n", filename);
 
 		if(!data)
 		{
             //printf("error: failed to open file '%s'\n", it->path);
+            err = PRE_ERR_FILE_NOT_FOUND;
             heap_string_free(&nhs);
             goto ret;
 		}
@@ -201,7 +226,7 @@ ret:
 	linked_list_reversed_foreach( ctx.includes, struct include_directive*, it, { heap_string_free( &it->path ); } );
 	linked_list_destroy( &ctx.includes );
     *out_text = nhs;
-    return 0;
+    return err;
 }
 
 heap_string preprocess_file(const char *filename)
@@ -218,7 +243,7 @@ heap_string preprocess_file(const char *filename)
     int pass=0;
 	while(1)
 	{
-		preprocess_text( ping, &pong, &modified, filename );
+		int err = preprocess_text( ping, &pong, &modified, filename );
         //printf("pass %d\n", pass++);
 		// printf( "processed = %s\n", processed );
 		heap_string_free( &ping );
@@ -226,7 +251,7 @@ heap_string preprocess_file(const char *filename)
         pong = NULL;
         if(!ping)
 		{
-            printf("error while preprocessing file '%s'\n", filename); //TODO: fix filename
+            printf("error while preprocessing file '%s', error code = %d\n", filename, err); //TODO: fix filename
             break;
 		}
         if(!modified) break;

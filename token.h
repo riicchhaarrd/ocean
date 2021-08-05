@@ -50,6 +50,7 @@ enum TOKEN_TYPE
     TK_BREAK,
     TK_LOOP,
     TK_EMIT,
+    TK_DOT_THREE_TIMES,
     TK_PLUS_PLUS,
     TK_MINUS_MINUS,
     

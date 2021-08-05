@@ -14,8 +14,14 @@ struct ast_context
 
     struct token *current_token;
 
-    bool verbose;
+    struct ast_node *function;
+
+    int verbose;
+    int error; //UNUSED
+    int done; //UNUSED
 };
+
+static struct ast_node* statement( struct ast_context* ctx );
 
 static int accept(struct ast_context *ctx, int type)
 {
@@ -182,8 +188,6 @@ static struct ast_node *expression(struct ast_context *ctx);
 
 static struct ast_node *factor(struct ast_context *ctx)
 {
-    struct ast_node *n = NULL;
-
     if(!accept(ctx, TK_IDENT))
     {
         struct ast_node *ident = identifier(ctx, ctx->current_token->string);
@@ -192,7 +196,7 @@ static struct ast_node *factor(struct ast_context *ctx)
         if(!accept(ctx, '('))
 		{
 			//function call
-            n = push_node(ctx, AST_FUNCTION_CALL_EXPR);
+            struct ast_node *n = push_node(ctx, AST_FUNCTION_CALL_EXPR);
             n->call_expr_data.callee = ident; //in this case the callee is just a identifier e.g a() where as a is the callee
             n->call_expr_data.numargs = 0;
             
@@ -216,19 +220,11 @@ static struct ast_node *factor(struct ast_context *ctx)
                     break;
 			} while(!accept(ctx, ','));
             return n;
-        } else
-        {
-            //probably just using it as an identifier e.g func(arg)
-            return ident;
-            
-            //TODO: function calls, other ident related stuff
-            //debug_printf("got ident, unhandled...\n");
-            //return NULL;
         }
-        return NULL; //can we be sure that n wasn't changed to be not NULL? just return NULL anyways    
+        return ident;
     } else if(!accept(ctx, '('))
     {
-        n = expression(ctx);
+        struct ast_node *n = expression(ctx);
         if(!n)
         {
             debug_printf("no expression within parentheses\n");
@@ -244,7 +240,7 @@ static struct ast_node *factor(struct ast_context *ctx)
     } else if(!accept(ctx, '-') || !accept(ctx, '+') || !accept(ctx, '!') || !accept(ctx, '~') || !accept(ctx, TK_PLUS_PLUS) || !accept(ctx, TK_MINUS_MINUS))
     {
         int operator = ctx->current_token->type;
-        n = expression(ctx);
+        struct ast_node *n = expression(ctx);
         if(!n)
         {
             debug_printf("expected rhs... for unary expression %c\n", operator);
@@ -253,16 +249,13 @@ static struct ast_node *factor(struct ast_context *ctx)
         return unary_expr(ctx, operator, 1, n);
     } else if(!accept(ctx, TK_INTEGER))
     {
-        n = int_literal(ctx, ctx->current_token->integer);
+        return int_literal(ctx, ctx->current_token->integer);
     } else if(!accept(ctx, TK_STRING))
     {
-        n = string_literal(ctx, ctx->current_token->string);
-    } else if(!accept(ctx, TK_EOF))
-	{
-		n = push_node( ctx, AST_EXIT );
+        return string_literal(ctx, ctx->current_token->string);
 	} else if(!accept(ctx, '*'))
 	{
-        n = push_node(ctx, AST_DEREFERENCE);
+        struct ast_node *n = push_node(ctx, AST_DEREFERENCE);
         n->dereference_data.value = factor(ctx);
         if(!n->dereference_data.value)
 		{
@@ -296,18 +289,18 @@ static struct ast_node *factor(struct ast_context *ctx)
         return so_node;
 	} else if(!accept(ctx, '&'))
     {
-        n = push_node(ctx, AST_ADDRESS_OF);
+        struct ast_node *n = push_node(ctx, AST_ADDRESS_OF);
         n->address_of_data.value = expression(ctx);
         if(!n->address_of_data.value)
 		{
 			debug_printf( "invalid expression\n" );
 			return NULL;
 		}
-	} else
-    {
-		debug_printf("expected integer.. got %s (%d), line = %d\n", token_type_to_string(ctx->current_token->type), ctx->current_token->type, ctx->current_token->lineno);
-    }
-    return n;
+        return n;
+	}
+	debug_printf( "expected factor got %s (%d), line = %d\n", token_type_to_string( ctx->current_token->type ),
+				  ctx->current_token->type, ctx->current_token->lineno );
+	return NULL;
 }
 
 static struct ast_node *postfix(struct ast_context *ctx)
@@ -542,7 +535,7 @@ static struct ast_node *regular_assignment(struct ast_context *ctx)
 	static const int assignment_operators[] = {'=',TK_PLUS_ASSIGN,TK_MINUS_ASSIGN,TK_DIVIDE_ASSIGN,TK_MULTIPLY_ASSIGN,TK_MOD_ASSIGN,TK_AND_ASSIGN,TK_OR_ASSIGN,TK_XOR_ASSIGN};
     for(int i = 0; i < COUNT_OF(assignment_operators); ++i)
 	{
-        while ( !accept( ctx, assignment_operators[i] ) )
+        if ( !accept( ctx, assignment_operators[i] ) )
 		{
             int operator = ctx->current_token->type;
 			struct ast_node* rhs = ternary( ctx );
@@ -616,9 +609,6 @@ static void print_ast(struct ast_node *n, int depth)
         break;
     case AST_IDENTIFIER:
         printf("identifier '%s'\n", n->identifier_data.name);
-        break;
-    case AST_EXIT:
-        printf("exit\n");
         break;
 
     case AST_PROGRAM:
@@ -764,6 +754,8 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 		struct ast_node* id = identifier( ctx, ctx->current_token->string );
 
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
+        assert(ctx->function);
+        ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
 		decl_node->variable_decl_data.id = id;
 		decl_node->variable_decl_data.data_type = type_decl;
         decl_node->variable_decl_data.initializer_value = NULL;
@@ -821,24 +813,30 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
     return 0;
 }
 
-static struct ast_node *block(struct ast_context *ctx);
-static struct ast_node *statement(struct ast_context *ctx)
+static struct ast_node *init_statement(struct ast_context *ctx)
 {
-    struct ast_node *decl_node = NULL;
-    int ret = variable_declaration(ctx, &decl_node);
-    if(ret)
-        return NULL;
-    
-    if(decl_node != NULL)
-    {
-		if(accept(ctx, ';'))
-		{
-            debug_printf("expected ; after variable type declaration\n");
-            return NULL;
-		}
-        return decl_node;
-    }
+	struct ast_node* decl_node = NULL;
+	int ret = variable_declaration( ctx, &decl_node );
+	if ( ret )
+		return NULL;
+    if(!decl_node)
+	{
+        decl_node = regular_assignment(ctx);
+	}
+	return decl_node;
+}
 
+static int block(struct ast_context *ctx, struct ast_node **);
+
+static struct ast_node *statement_node(struct ast_context *ctx)
+{
+    struct ast_node *block_node = NULL;
+    if(block(ctx, &block_node))
+        return NULL;
+
+    if(block_node)
+        return block_node;
+    
     if(!accept(ctx, TK_EMIT))
 	{
         if(accept(ctx, TK_INTEGER))
@@ -868,28 +866,15 @@ static struct ast_node *statement(struct ast_context *ctx)
 		}
         struct ast_node *if_node = push_node(ctx, AST_IF_STMT);
         if_node->if_stmt_data.test = test;
-        if(accept(ctx, '{'))
-		{
-    		struct ast_node *single_stmt = statement(ctx);
-            if(!single_stmt)
-                return NULL;
-            if_node->if_stmt_data.consequent = single_stmt;
-            return if_node;
-		}
-        struct ast_node *block_node = block(ctx);
-        if(!block_node)
+        struct ast_node *body = statement(ctx);
+        if(!body)
             return NULL;
-        if_node->if_stmt_data.consequent = block_node;
+        if_node->if_stmt_data.consequent = body;
         return if_node;
     } else if(!accept(ctx, TK_BREAK))
     {
-        struct ast_node *break_stmt = push_node(ctx, AST_BREAK_STMT);
-        if(accept(ctx, ';'))
-		{
-            debug_printf("expected ; after break statement\n");
-			return NULL;
-		}
-        return break_stmt;
+        //TODO: maybe move this to iteration only statements function
+        return push_node(ctx, AST_BREAK_STMT);
 	} else if(!accept(ctx, TK_WHILE))
 	{
         if(accept(ctx, '('))
@@ -910,12 +895,12 @@ static struct ast_node *statement(struct ast_context *ctx)
             debug_printf("expected ) after while\n");
 			return NULL;
 		}
-		// TODO: FIXME make it clear whether we expect { here or in the block function
-		struct ast_node* block_node = block( ctx );
-		if ( !block_node )
-			return NULL;
+        
+        struct ast_node *body = statement(ctx);
+        if(!body)
+            return NULL;
 		struct ast_node* while_node = push_node( ctx, AST_WHILE_STMT );
-        while_node->while_stmt_data.body = block_node;
+        while_node->while_stmt_data.body = body;
         while_node->while_stmt_data.test = test;
         return while_node;
 	} else if(!accept(ctx, TK_FOR))
@@ -931,16 +916,16 @@ static struct ast_node *statement(struct ast_context *ctx)
         
         if(accept(ctx, ';'))
         {
-			init = expression( ctx );
+			init = init_statement(ctx);
 			if ( !init )
 			{
-				debug_printf( "invalid init expression in for statement block\n" );
+				debug_printf( "invalid init statement in for statement block\n" );
 				return NULL;
 			}
             
 			if ( accept( ctx, ';' ) )
 			{
-				debug_printf( "expected ; after expression\n" );
+				debug_printf( "expected ; after init statement\n" );
 				return NULL;
 			}
 		}
@@ -974,15 +959,15 @@ static struct ast_node *statement(struct ast_context *ctx)
 				return NULL;
 			}
 		}
-		// TODO: FIXME make it clear whether we expect { here or in the block function
-		struct ast_node* block_node = block( ctx );
-		if ( !block_node )
-			return NULL;
+
+        struct ast_node *body = statement(ctx);
+        if(!body)
+            return NULL;
 		struct ast_node* for_node = push_node( ctx, AST_FOR_STMT );
 		for_node->for_stmt_data.init = init;
 		for_node->for_stmt_data.test = test;
 		for_node->for_stmt_data.update = update;
-		for_node->for_stmt_data.body = block_node;
+		for_node->for_stmt_data.body = body;
 		return for_node;
 	} else if(!accept(ctx, TK_RETURN))
 	{
@@ -990,47 +975,50 @@ static struct ast_node *statement(struct ast_context *ctx)
         ret_stmt->return_stmt_data.argument = expression(ctx);
         if(!ret_stmt->return_stmt_data.argument)
             return NULL;
-        if(accept(ctx, ';'))
-		{
-            debug_printf("expected ; after return statement\n");
-			return NULL;
-		}
 		return ret_stmt;
 	}
+    return init_statement(ctx);
+}
 
-	struct ast_node *n = expression(ctx);
-    if(!n)
-        return NULL;
-    if(n->type == AST_EXIT)
-        return n;
-    if(accept(ctx, ';'))
+static struct ast_node *statement(struct ast_context *ctx)
+{
+    if(!accept(ctx, ';'))
 	{
-        debug_printf("expected ; after expression statement got '%s'\n", token_type_to_string(ctx->current_token->type));
-        return NULL;
+		struct ast_node* n = push_node( ctx, AST_EMPTY );
+		return n;
 	}
-    return n;
+	struct ast_node* stmt = statement_node( ctx );
+	if ( stmt )
+		if ( stmt->type == AST_BLOCK_STMT || stmt->type == AST_IF_STMT || stmt->type == AST_WHILE_STMT || stmt->type == AST_FOR_STMT )
+			return stmt;
+	if ( accept( ctx, ';' ) )
+	{
+		debug_printf( "expected ; after statement '%s' got '%s'\n", stmt ? AST_NODE_TYPE_to_string(stmt->type) : "null", token_type_to_string( ctx->current_token->type ) );
+		return NULL;
+	}
+	return stmt;
 }
 
 //TODO: free/cleanup linked lists statements in block ast nodes either through zone allocation or manually
-static struct ast_node *block(struct ast_context *ctx)
+static int block(struct ast_context *ctx, struct ast_node **node_out)
 {
-    accept(ctx, '{');
+    if(accept(ctx, '{'))
+        return 0;
     
-    struct ast_node *block_node = push_node(ctx, AST_BLOCK_STMT);
-    block_node->block_stmt_data.body = linked_list_create(void*);
+    struct ast_node *n = push_node(ctx, AST_BLOCK_STMT);
+    n->block_stmt_data.body = linked_list_create(void*);
 
     while(1)
 	{
 		if(!accept(ctx, '}'))
             break;
-        struct ast_node *n = statement(ctx);
-        if(!n) return NULL;
-        linked_list_prepend(block_node->block_stmt_data.body, n);
-
-        if(n->type == AST_EXIT)
-            break;
+        struct ast_node *stmt = statement(ctx);
+        if(!stmt)
+            return 1;
+        linked_list_prepend(n->block_stmt_data.body, stmt);
 	}
-    return block_node;
+    *node_out = n;
+    return 0;
 }
 
 static struct ast_node *program(struct ast_context *ctx)
@@ -1040,10 +1028,9 @@ static struct ast_node *program(struct ast_context *ctx)
     
     while(1)
     {
-        if(!accept(ctx, TK_EOF))
-            break;
+        if(!accept(ctx, TK_EOF)) break;
         
-		struct ast_node* type_decl = NULL;
+        struct ast_node* type_decl = NULL;
         int td = type_declaration( ctx , &type_decl );
         if(td)
 		{
@@ -1055,6 +1042,9 @@ static struct ast_node *program(struct ast_context *ctx)
 			struct ast_node *decl = push_node(ctx, AST_FUNCTION_DECL);
             decl->func_decl_data.return_data_type = type_decl;
             decl->func_decl_data.numparms = 0;
+            decl->func_decl_data.variadic = 0;
+            decl->func_decl_data.numdeclarations = 0;
+            ctx->function = decl;
             if(accept(ctx, TK_IDENT))
             {
                 debug_printf("expected ident after function\n");
@@ -1071,6 +1061,11 @@ static struct ast_node *program(struct ast_context *ctx)
             struct ast_node *parm_decl = NULL;
             while(1)
 			{
+                if(!accept(ctx, TK_DOT_THREE_TIMES))
+				{
+                    decl->func_decl_data.variadic = 1;
+					break;
+				}
 				int ret = variable_declaration( ctx, &parm_decl );
                 if(ret)
                     return NULL;
@@ -1093,8 +1088,8 @@ static struct ast_node *program(struct ast_context *ctx)
                 return NULL;
             }
 
-            struct ast_node *block_node = block(ctx);
-            if(!block_node)
+            struct ast_node *block_node = NULL;
+            if(block(ctx, &block_node))
                 return NULL;
             decl->func_decl_data.body = block_node;
             linked_list_prepend(program_node->program_data.body, decl);
@@ -1118,7 +1113,10 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         .token_index = 0,
         .root_node = NULL,
         .node_list = NULL,
-        .verbose = verbose
+        .verbose = verbose,
+        .done = 0,
+        .error = 0,
+        .function = NULL
     };
     
 	context.node_list = linked_list_create( struct ast_node );

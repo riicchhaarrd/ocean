@@ -13,6 +13,7 @@ struct lexer
     struct token tk;
     int lineno;
     struct linked_list *tokens;
+    int savepos;
 };
 
 static int next(struct lexer *lex)
@@ -20,6 +21,16 @@ static int next(struct lexer *lex)
     if(lex->pos + 1 > lex->bufsz)
 		return -1;
     return lex->buf[lex->pos++];
+}
+
+static void save(struct lexer *lex)
+{
+    lex->savepos = lex->pos;
+}
+
+static void restore(struct lexer *lex)
+{
+    lex->pos = lex->savepos;
 }
 
 static int next_check(struct lexer *lex, int check)
@@ -292,6 +303,16 @@ retry:
             return 0;
         }
         break;
+        
+	case '.':
+        save(lex);
+        if(next(lex) == '.' && next(lex) == '.')
+		{
+            tk->type = TK_DOT_THREE_TIMES;
+            return 0;
+		} else
+            restore(lex);
+        break;
 
     case '#':
 	case '{':
@@ -306,7 +327,6 @@ retry:
 	case ':':
 	case '\\':
 	case ',':
-	case '.':
         return 0;
 
 	default:

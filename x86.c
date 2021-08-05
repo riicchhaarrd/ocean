@@ -280,6 +280,23 @@ static int function_call_ident(struct compile_context *ctx, const char *function
 	return 0;
 }
 
+static int function_variable_declaration_stack_size( struct compile_context* ctx, struct ast_node* n )
+{
+	assert( n->type == AST_FUNCTION_DECL );
+	int nd = n->func_decl_data.numdeclarations;
+	int total = 0;
+	for ( int i = 0; i < nd; ++i )
+	{
+		struct ast_node* decl = n->func_decl_data.declarations[i];
+		assert( decl->type == AST_VARIABLE_DECL );
+		int ds = data_type_size( decl->variable_decl_data.data_type );
+		assert( ds > 0 );
+		total += ds;
+	}
+	return total;
+}
+
+#if 0 
 static int accumulate_local_variable_declaration_size(struct compile_context *ctx, struct ast_node *n)
 {
     assert(n->type == AST_BLOCK_STMT);
@@ -311,6 +328,7 @@ static int accumulate_local_variable_declaration_size(struct compile_context *ct
     return aligned;
     */
 }
+#endif
 
 static intptr_t register_value(struct compile_context *ctx, enum REGISTER reg)
 {
@@ -1164,7 +1182,8 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             hash_map_insert(ctx->function->variables, parm->variable_decl_data.id->identifier_data.name, tv);
 		}
         assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
-        int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
+        //int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
+        int localsize = function_variable_declaration_stack_size(ctx, n);
         //push ebp
         //mov ebp, esp
         db(ctx, 0x55);

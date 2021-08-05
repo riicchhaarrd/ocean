@@ -92,7 +92,7 @@ struct ast_unary_expr
 {
 	struct ast_node *argument;
     int operator;
-    bool prefix;
+    int prefix;
 };
 
 struct ast_assignment_expr
@@ -134,6 +134,10 @@ struct ast_function_decl
     int numparms;
     struct ast_node *body;
     struct ast_node *return_data_type;
+    int variadic;
+    //TODO: access same named variables in different scopes
+    struct ast_node *declarations[64]; //TODO: increase max amount of local variables, for now this'll do
+    int numdeclarations;
 };
 
 struct ast_program
