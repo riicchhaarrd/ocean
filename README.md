@@ -11,7 +11,7 @@ It does not list every however small it be functionality of C, like statements/e
 # Short term
 
 - [x] basic features of a programming language, conditionals/loops/variables/types/order of precedence e.g (1 + 2) * 3 - 4 / 5 + (6 * 8)
-- [-] standard library
+- [ ] standard library
 - [ ] other compile targets e.g https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 - [ ] self-hosting
 - [ ] a working C compiler (excluding any use of GCC/clang specific features like __attribute__ or such)
