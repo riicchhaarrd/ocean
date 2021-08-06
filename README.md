@@ -17,13 +17,17 @@ It does not list every however small it be functionality of C, like statements/e
 - [ ] a working C compiler (excluding any use of GCC/clang specific features like __attribute__ or such)
 
 # Long(er) term
-- [ ] Add new or borrow from other language(s) features ontop of C, deviate away from just C
+- [ ] Add new or borrow from other language(s) features/ideas ontop of C, deviate away from just C
 	
 	- [ ] defer
 	- [ ] operator overloading
 	- [ ] constexpr/consteval from c++ or some #run directive (https://github.com/BSVino/JaiPrimer/blob/master/JaiPrimer.md)
 	- [ ] learn from other similar projects (e.g https://news.ycombinator.com/item?id=27890888)
 	- [ ] array of struct to struct of arrays conversion and vice versa https://en.wikipedia.org/wiki/AoS_and_SoA
+	- [ ] something like lisp ' to pass around expressions without evaluating them
+	- [ ] builtin string type that keeps track of it's capacity/size/hash and when comparing first just compares the hash then if true the actual data or index based strings
+	- [ ] struct members default values
+	- [ ] coroutines by either saving entire stack for that function to heap or incorporating some message system notify/waittill (https://github.com/riicchhaarrd/gsc) sort of like sleeping functions that will wake up once you call notify on some key
 - [ ] target other ISA (instruction set architectures) e.g ARM/x86_64
 - [ ] better error handling / memory cleanup
 - [ ] LLVM or other IR backend (atm just targeting x86 and it's a great learning exercise)
