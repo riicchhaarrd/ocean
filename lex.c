@@ -131,6 +131,7 @@ static int token(struct lexer *lex, struct token *tk)
     int ch;
 retry:
     ch = next(lex);
+    tk->curpos = lex->pos;
     tk->lineno = lex->lineno + 1;
     if(ch == -1)
 		return 1;

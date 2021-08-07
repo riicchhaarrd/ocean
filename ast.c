@@ -1,60 +1,84 @@
-#include "ast.h"
 #include "token.h"
+#include "ast.h"
+#include "parse.h"
 #include "rhd/linked_list.h"
 #include "std.h"
 
 struct ast_context
 {
-    struct token *tokens;
-    int num_tokens;
-    int token_index;
+    struct parse_context parse_context;
     
     struct linked_list *node_list;
     struct ast_node *root_node;
-
-    struct token *current_token;
-
     struct ast_node *function;
 
+    struct ast_node *last_node;
+
     int verbose;
-    int error; //UNUSED
-    int done; //UNUSED
+    jmp_buf jmp;
 };
 
-static struct ast_node* statement( struct ast_context* ctx );
+static void statement(struct ast_context *ctx, struct ast_node **node);
 
-static int accept(struct ast_context *ctx, int type)
+static int ast_accept(struct ast_context *ctx, int type)
 {
-    if(ctx->token_index >= ctx->num_tokens)
-        return type == TK_EOF ? 0 : 1;
-    struct token *tk = &ctx->tokens[ctx->token_index];
-    ctx->current_token = tk;
-    if(tk->type != type)
-    {
-        //debug_printf("tk->type %s (%d) != type %s (%d)\n", token_type_to_string(tk->type), tk->type, token_type_to_string(type), type);
-        //ctx->current_token = NULL;
-        return 1;
-    }
-    ctx->current_token = tk;
-	++ctx->token_index;
-	return 0;
+    return parse_accept(&ctx->parse_context, type);
 }
 
-static int expect(struct ast_context *ctx, int type)
+static struct token *ast_token(struct ast_context *ctx)
 {
-    if(accept(ctx, type))
-    {
-        debug_printf("expected type %d, got %d\n", type, ctx->tokens[ctx->token_index]);
-        return 1;
-    }
-    return 0;
+    return ctx->parse_context.current_token;
 }
 
-static int ast_error(struct ast_context *ctx, const char *errmessage)
+static void ast_assert_r(struct ast_context *ctx, int expr, const char *expr_str, const char *fmt, ...)
 {
-    debug_printf("error: %s\n", errmessage);
-    return 1;
+    if(expr)
+        return;
+
+	char buffer[512] = { 0 };
+	va_list va;
+	va_start( va, fmt );
+	vsnprintf( buffer, sizeof( buffer ), fmt, va );
+	debug_printf( "ast assert failed: '%s' %s\n", expr_str, buffer );
+	va_end( va );
+
+	longjmp(ctx->jmp, 1);
 }
+
+#define ast_assert(ctx, expr, ...) \
+    ast_assert_r(ctx, (intptr_t)expr, #expr, ## __VA_ARGS__)
+
+static void ast_error(struct ast_context *ctx, const char *fmt, ...)
+{
+	char buffer[512] = { 0 };
+    va_list va;
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    debug_printf("ast error: %s\n", buffer);
+    va_end(va);
+    
+    longjmp(ctx->jmp, 1);
+}
+
+static void ast_expect_r(struct ast_context *ctx, int type, int lineno, const char *fmt, ...)
+{
+    struct token *tk = ctx->parse_context.current_token;
+    if(!ast_accept(ctx, type))
+        return;
+    
+	char buffer[512] = { 0 };
+    va_list va;
+    va_start(va, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, va);
+    //TODO: print last 5-10 nodes that were pushed for more debug info
+    debug_printf("[%d] syntax error: expected token '%s' got '%s' at line %d, last_node = '%s'\n%s\n", lineno, token_type_to_string(type), tk ? token_type_to_string(tk->type) : "null", tk->lineno, AST_NODE_TYPE_to_string(ctx->last_node->type), buffer);
+    va_end(va);
+    
+    longjmp(ctx->jmp, 1);
+}
+
+#define ast_expect(ctx, type, ...) \
+    ast_expect_r(ctx, type, __LINE__, ## __VA_ARGS__)
 
 static struct ast_node *push_node(struct ast_context *ctx, int type)
 {
@@ -64,6 +88,7 @@ static struct ast_node *push_node(struct ast_context *ctx, int type)
             .rvalue = 0
     };
     struct ast_node *node = linked_list_prepend(ctx->node_list, t);
+    ctx->last_node = node;
     return node;
 }
 
@@ -142,9 +167,9 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
 static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
 {
     *qualifiers = TQ_NONE;
-    if(!accept(ctx, TK_CONST))
+    if(!ast_accept(ctx, TK_CONST))
         *qualifiers |= TQ_CONST;
-    else if(!accept(ctx, TK_T_UNSIGNED))
+    else if(!ast_accept(ctx, TK_T_UNSIGNED))
         *qualifiers |= TQ_UNSIGNED;
     else
         return 1;
@@ -160,14 +185,14 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
     //TODO: implement const/volatile etc and other qualifiers
     type_qualifiers(ctx, &pre_qualifiers);
     
-	if ( !accept( ctx, TK_T_CHAR ) || !accept( ctx, TK_T_SHORT ) || !accept( ctx, TK_T_INT ) ||
-		 !accept( ctx, TK_T_FLOAT ) || !accept( ctx, TK_T_DOUBLE ) || !accept( ctx, TK_T_NUMBER ) || !accept(ctx, TK_T_VOID))
+	if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
+		 !ast_accept( ctx, TK_T_FLOAT ) || !ast_accept( ctx, TK_T_DOUBLE ) || !ast_accept( ctx, TK_T_NUMBER ) || !ast_accept(ctx, TK_T_VOID))
 	{
-		int primitive_type = ctx->current_token->type - TK_T_CHAR;
+		int primitive_type = ast_token(ctx)->type - TK_T_CHAR;
         
         int post_qualifiers = TQ_NONE;
         type_qualifiers(ctx, &post_qualifiers);
-        int is_pointer = !accept(ctx, '*');
+        int is_pointer = !ast_accept(ctx, '*');
 
 		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
 		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
@@ -184,372 +209,264 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
     return *data_type_node ? 0 : ( pre_qualifiers == TQ_NONE ? 0 : 1 );
 }
 
-static struct ast_node *expression(struct ast_context *ctx);
+static void expression(struct ast_context *ctx, struct ast_node **node);
+static void factor( struct ast_context* ctx, struct ast_node **node );
 
-static struct ast_node *factor(struct ast_context *ctx)
+static struct ast_node *ident_factor(struct ast_context *ctx)
 {
-    if(!accept(ctx, TK_IDENT))
-    {
-        struct ast_node *ident = identifier(ctx, ctx->current_token->string);
-        int operator = 0;
-        struct ast_node *rhs = NULL;
-        if(!accept(ctx, '('))
-		{
-			//function call
-            struct ast_node *n = push_node(ctx, AST_FUNCTION_CALL_EXPR);
-            n->call_expr_data.callee = ident; //in this case the callee is just a identifier e.g a() where as a is the callee
-            n->call_expr_data.numargs = 0;
-            
-			do
-			{
-                //if the function call is just without arguments, break instantly
-				if(!accept(ctx, ')'))
-                    break;
-				struct ast_node *arg = expression(ctx);
-                if(!arg)
-				{
-                    //arg got null and we got an error somewhere
-                    //the allocated node n will be cleaned up by the zone allocated memory or in the list it's in later
-                    debug_printf("error in function call...\n");
-                    return NULL;
-				}
-				//debug_printf("arg %02X\n", arg);
-                n->call_expr_data.arguments[n->call_expr_data.numargs++] = arg;
-                
-				if(!accept(ctx, ')')) //check whether we've hit the last parameter
-                    break;
-			} while(!accept(ctx, ','));
-            return n;
-        }
-        return ident;
-    } else if(!accept(ctx, '('))
-    {
-        struct ast_node *n = expression(ctx);
-        if(!n)
-        {
-            debug_printf("no expression within parentheses\n");
-            return NULL;
-        }
-        //expect end parenthese )
-        if(accept(ctx, ')'))
-        {
-            debug_printf("expected ending parenthese.. )\n");
-            return NULL;
-        }
-        return n;
-    } else if(!accept(ctx, '-') || !accept(ctx, '+') || !accept(ctx, '!') || !accept(ctx, '~') || !accept(ctx, TK_PLUS_PLUS) || !accept(ctx, TK_MINUS_MINUS))
-    {
-        int operator = ctx->current_token->type;
-        struct ast_node *n = expression(ctx);
-        if(!n)
-        {
-            debug_printf("expected rhs... for unary expression %c\n", operator);
-            return NULL;
-        }
-        return unary_expr(ctx, operator, 1, n);
-    } else if(!accept(ctx, TK_INTEGER))
-    {
-        return int_literal(ctx, ctx->current_token->integer);
-    } else if(!accept(ctx, TK_STRING))
-    {
-        return string_literal(ctx, ctx->current_token->string);
-	} else if(!accept(ctx, '*'))
+	struct ast_node* ident = identifier( ctx, ast_token(ctx)->string );
+	if ( !ast_accept( ctx, '(' ) )
 	{
-        struct ast_node *n = push_node(ctx, AST_DEREFERENCE);
-        n->dereference_data.value = factor(ctx);
-        if(!n->dereference_data.value)
+		struct ast_node* n = push_node( ctx, AST_FUNCTION_CALL_EXPR );
+		n->call_expr_data.callee = ident;
+		n->call_expr_data.numargs = 0;
+		do
 		{
-			debug_printf( "invalid expression\n" );
-			return NULL;
-		}
-        return n;
-    } else if(!accept(ctx, TK_SIZEOF))
-    {
-        if(accept(ctx, '('))
-            return NULL;
-
-        struct ast_node *so_node = push_node(ctx, AST_SIZEOF);
-        
-        struct ast_node *subject = NULL;
-        int td = type_declaration(ctx, &subject);
-        if(td)
-		{
-            debug_printf("error in type declaration\n");
-			return NULL;
-		}
-		if(!subject)
-		{
-            subject = expression(ctx);
-            if(!subject)
-                return NULL;
-			so_node->sizeof_data.subject = subject;
-		}
-		if(accept(ctx, ')'))
-            return NULL;
-        return so_node;
-	} else if(!accept(ctx, '&'))
-    {
-        struct ast_node *n = push_node(ctx, AST_ADDRESS_OF);
-        n->address_of_data.value = expression(ctx);
-        if(!n->address_of_data.value)
-		{
-			debug_printf( "invalid expression\n" );
-			return NULL;
-		}
-        return n;
+			if ( !ast_accept( ctx, ')' ) )
+				break;
+			struct ast_node* arg;
+			expression( ctx, &arg );
+			n->call_expr_data.arguments[n->call_expr_data.numargs++] = arg;
+			if ( !ast_accept( ctx, ')' ) )
+				break;
+		} while ( !ast_accept( ctx, ',' ) );
+		return n;
 	}
-	debug_printf( "expected factor got %s (%d), line = %d\n", token_type_to_string( ctx->current_token->type ),
-				  ctx->current_token->type, ctx->current_token->lineno );
-	return NULL;
+	return ident;
 }
 
-static struct ast_node *postfix(struct ast_context *ctx)
+static struct ast_node *parens_factor(struct ast_context *ctx)
 {
-    struct ast_node *lhs = factor(ctx);
-    if(!lhs)
-        return NULL;
-    if(!accept(ctx, TK_PLUS_PLUS) || !accept(ctx, TK_MINUS_MINUS))
-        return unary_expr(ctx, ctx->current_token->type, 0, lhs);
-    return lhs;
+	struct ast_node* n;
+    expression( ctx, &n );
+	ast_expect( ctx, ')', "no ending )" );
+	return n;
 }
 
-static struct ast_node *array_subscripting(struct ast_context *ctx)
+static struct ast_node *unary_expr_factor(struct ast_context *ctx)
 {
-    struct ast_node *lhs = postfix(ctx);
-    if(!lhs)
-        return NULL;
-    while(!accept(ctx, '['))
-    {
-    	struct ast_node *rhs = expression(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        if(accept(ctx, ']'))
+	int operator = ast_token(ctx)->type;
+	struct ast_node* n;
+    expression( ctx, &n );
+	return unary_expr( ctx, operator, 1, n );
+}
+
+static struct ast_node *integer_factor(struct ast_context *ctx)
+{
+	return int_literal( ctx, ast_token(ctx)->integer );
+}
+
+static struct ast_node *string_factor(struct ast_context *ctx)
+{
+	return string_literal( ctx, ast_token(ctx)->string );
+}
+
+static struct ast_node *dereference_factor(struct ast_context *ctx)
+{
+	struct ast_node* n = push_node( ctx, AST_DEREFERENCE );
+	factor( ctx, &n->dereference_data.value );
+	return n;
+}
+
+static struct ast_node *sizeof_factor(struct ast_context *ctx)
+{
+	ast_expect( ctx, '(', "sizeof expecting (" );
+	struct ast_node* so_node = push_node( ctx, AST_SIZEOF );
+	struct ast_node* subject = NULL;
+	int td = type_declaration( ctx, &subject );
+	ast_assert( ctx, !td, "error in type declaration" );
+	if ( !subject )
+		expression( ctx, &so_node->sizeof_data.subject );
+	ast_expect( ctx, ')', "sizeof expecting )" );
+	return so_node;
+}
+
+static struct ast_node *address_of_factor(struct ast_context *ctx)
+{
+	struct ast_node* n = push_node( ctx, AST_ADDRESS_OF );
+	expression( ctx, &n->address_of_data.value );
+	return n;
+}
+
+struct ast_node_type_function
+{
+    int type;
+    struct ast_node *(*function)();
+};
+
+static struct ast_node_type_function factors[] = {
+    { TK_IDENT, ident_factor },
+    { '(', parens_factor },
+    { '-', unary_expr_factor },
+    { '+', unary_expr_factor },
+    { '!', unary_expr_factor },
+    { '~', unary_expr_factor },
+    { TK_PLUS_PLUS, unary_expr_factor },
+    { TK_MINUS_MINUS, unary_expr_factor },
+    { TK_INTEGER, integer_factor },
+    { TK_STRING, string_factor },
+    { '*', dereference_factor },
+    { TK_SIZEOF, sizeof_factor },
+    { '&', address_of_factor }
+};
+
+static void factor( struct ast_context* ctx, struct ast_node **node )
+{
+    *node = NULL;
+    for(int i = 0; i < COUNT_OF(factors); ++i)
+	{
+        if(!ast_accept(ctx, factors[i].type))
 		{
-            debug_printf("expected ending bracket for array subscript\n");
-            return NULL;
+			*node = factors[i].function( ctx );
+            return;
 		}
-		lhs = array_subscript_expr(ctx, lhs, rhs);
-    }
-    return lhs;
+	}
+	ast_error(ctx, "expected factor");
 }
 
-static struct ast_node *term(struct ast_context *ctx)
+static void postfix(struct ast_context *ctx, struct ast_node **node)
 {
-    struct ast_node *lhs = NULL;
-	/*
-    int negate = 0;
-    if(accept(ctx, '-'))
-        ++negate;
-    */
+    factor(ctx, node);
+    if(!ast_accept(ctx, TK_PLUS_PLUS) || !ast_accept(ctx, TK_MINUS_MINUS))
+        *node = unary_expr(ctx, ast_token(ctx)->type, 0, *node);
+}
 
-    lhs = array_subscripting(ctx);
-    if(!lhs)
+static void array_subscripting(struct ast_context *ctx, struct ast_node **node)
+{
+    postfix(ctx, node);
+    while(!ast_accept(ctx, '['))
     {
-        debug_printf("no term found\n");
-        return NULL;
+        struct ast_node *rhs;
+        expression(ctx, &rhs);
+        ast_expect(ctx, ']', "no ending bracket for array subscript");
+		*node = array_subscript_expr(ctx, *node, rhs);
     }
+}
 
-    //first one is lhs
-    //and it's now a binop
+static void term(struct ast_context *ctx, struct ast_node **node)
+{
+    array_subscripting(ctx, node);
     
-    while(!accept(ctx, '/') || !accept(ctx, '*') || !accept(ctx, '%'))
+    while(!ast_accept(ctx, '/') || !ast_accept(ctx, '*') || !ast_accept(ctx, '%'))
     {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = array_subscripting(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+		int operator = ast_token(ctx)->type;
+		struct ast_node* rhs;
+		array_subscripting( ctx , &rhs );
+        *node = bin_expr(ctx, operator, *node, rhs);
     }
-    return lhs;
 }
 
 
-static struct ast_node *add_and_subtract(struct ast_context *ctx)
+static void add_and_subtract(struct ast_context *ctx, struct ast_node **node)
 {
-    /* TODO: add more expressions */
-    struct ast_node *lhs = term(ctx);
-    if(!lhs)
-        return NULL;
-    while(!accept(ctx, '+') || !accept(ctx, '-'))
+    term(ctx, node);
+    while(!ast_accept(ctx, '+') || !ast_accept(ctx, '-'))
     {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = term(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        term(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
     }
-    return lhs;
 }
 
-static struct ast_node *bitwise_shift(struct ast_context *ctx)
+static void bitwise_shift(struct ast_context *ctx, struct ast_node **node)
 {
-    /* TODO: add more expressions */
-    struct ast_node *lhs = add_and_subtract(ctx);
-    if(!lhs)
-        return NULL;
-    while(!accept(ctx, TK_LSHIFT) || !accept(ctx, TK_RSHIFT))
+    add_and_subtract(ctx, node);
+    while(!ast_accept(ctx, TK_LSHIFT) || !ast_accept(ctx, TK_RSHIFT))
     {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = add_and_subtract(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        add_and_subtract(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
     }
-    return lhs;
 }
 
-static struct ast_node *relational(struct ast_context *ctx)
+static void relational(struct ast_context *ctx, struct ast_node **node)
 {
-    /* TODO: add more expressions */
-    struct ast_node *lhs = bitwise_shift(ctx);
-    if(!lhs)
-        return NULL;
-    while(!accept(ctx, '>') || !accept(ctx, '<') || !accept(ctx, TK_LEQUAL) || !accept(ctx, TK_GEQUAL) || !accept(ctx, TK_EQUAL) || !accept(ctx, TK_NOT_EQUAL))
+    bitwise_shift(ctx, node);
+    while(!ast_accept(ctx, '>') || !ast_accept(ctx, '<') || !ast_accept(ctx, TK_LEQUAL) || !ast_accept(ctx, TK_GEQUAL) || !ast_accept(ctx, TK_EQUAL) || !ast_accept(ctx, TK_NOT_EQUAL))
     {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = bitwise_shift(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        bitwise_shift(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
     }
-    return lhs;
 }
 
-static struct ast_node *bitwise_and(struct ast_context *ctx)
+static void bitwise_and(struct ast_context *ctx, struct ast_node **node)
 {
-    /* TODO: add more expressions */
-    struct ast_node *lhs = relational(ctx);
-    if(!lhs)
-        return NULL;
+    relational(ctx, node);
+    while(!ast_accept(ctx, '&'))
+    {
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        relational(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
+    }
+}
+
+static void bitwise_xor(struct ast_context *ctx, struct ast_node **node)
+{
+    bitwise_and(ctx, node);
+    while(!ast_accept(ctx, '^'))
+    {
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        bitwise_and(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
+    }
+}
+
+static void bitwise_or(struct ast_context *ctx, struct ast_node **node)
+{
+    bitwise_xor(ctx, node);
+    while(!ast_accept(ctx, '|'))
+    {
+        int operator = ast_token(ctx)->type;
+    	struct ast_node *rhs;
+        bitwise_xor(ctx, &rhs);
+        *node = bin_expr(ctx, operator, *node, rhs);
+    }
+}
+
+static void ternary(struct ast_context *ctx, struct ast_node **node)
+{
+    bitwise_or(ctx, node);
     
-    while(!accept(ctx, '&'))
+    if(!ast_accept(ctx, '?'))
     {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = relational(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
-    }
-    return lhs;
-}
-
-static struct ast_node *bitwise_xor(struct ast_context *ctx)
-{
-    /* TODO: add more expressions */
-    struct ast_node *lhs = bitwise_and(ctx);
-    if(!lhs)
-        return NULL;
-    
-    while(!accept(ctx, '^'))
-    {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = bitwise_and(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
-    }
-    return lhs;
-}
-
-static struct ast_node *bitwise_or(struct ast_context *ctx)
-{
-    /* TODO: add more expressions */
-    struct ast_node *lhs = bitwise_xor(ctx);
-    if(!lhs)
-        return NULL;
-    
-    while(!accept(ctx, '|'))
-    {
-        int operator = ctx->current_token->type;
-    	struct ast_node *rhs = bitwise_xor(ctx);
-        if(!rhs)
-        {
-			debug_printf("error.... no rhs..\n");
-            return NULL;
-        }
-        lhs = bin_expr(ctx, operator, lhs, rhs);
-    }
-    return lhs;
-}
-
-static struct ast_node *ternary(struct ast_context *ctx)
-{
-    struct ast_node *cond = bitwise_or(ctx);
-    if(!cond)
-        return NULL;
-    
-    if(!accept(ctx, '?'))
-    {
-    	struct ast_node *consequent = bitwise_or(ctx);
-        if(!consequent)
-        {
-			debug_printf("error.... no consquent for ternary operator..\n");
-            return NULL;
-        }
-        if(accept(ctx, ':'))
-		{
-            debug_printf("expected : for ternary operator\n");
-			return NULL;
-		}
-    	struct ast_node *alternative = bitwise_or(ctx);
-        if(!alternative)
-        {
-			debug_printf("error.... no alternative for ternary operator\n");
-            return NULL;
-        }
-		struct ast_node* ternary_node = push_node( ctx, AST_TERNARY_EXPR );
-        ternary_node->ternary_expr_data.condition = cond;
+    	struct ast_node *consequent, *alternative, *ternary_node;
+        bitwise_or(ctx, &consequent);
+        ast_expect(ctx, ':', "expected : for ternary operator");
+    	bitwise_or(ctx, &alternative);
+		ternary_node = push_node( ctx, AST_TERNARY_EXPR );
+        ternary_node->ternary_expr_data.condition = *node;
         ternary_node->ternary_expr_data.consequent = consequent;
         ternary_node->ternary_expr_data.alternative = alternative;
-        return ternary_node;
+        *node = ternary_node;
 	}
-    return cond;
 }
 
-static struct ast_node *regular_assignment(struct ast_context *ctx)
+static void regular_assignment(struct ast_context *ctx, struct ast_node **node)
 {
-    struct ast_node *lhs = ternary(ctx);
-    if(!lhs) return NULL;
+    ternary(ctx, node);
 
 	static const int assignment_operators[] = {'=',TK_PLUS_ASSIGN,TK_MINUS_ASSIGN,TK_DIVIDE_ASSIGN,TK_MULTIPLY_ASSIGN,TK_MOD_ASSIGN,TK_AND_ASSIGN,TK_OR_ASSIGN,TK_XOR_ASSIGN};
     for(int i = 0; i < COUNT_OF(assignment_operators); ++i)
 	{
-        if ( !accept( ctx, assignment_operators[i] ) )
+        if ( !ast_accept( ctx, assignment_operators[i] ) )
 		{
-            int operator = ctx->current_token->type;
-			struct ast_node* rhs = ternary( ctx );
-			if ( !rhs )
-				return NULL;
-			lhs = assignment_expr( ctx, operator, lhs, rhs );
+            int operator = ast_token(ctx)->type;
+			struct ast_node* rhs;
+            ternary( ctx , &rhs );
+			*node = assignment_expr( ctx, operator, *node, rhs );
 		}
 	}
-    return lhs;
 }
 
-static struct ast_node *expression(struct ast_context *ctx)
+static void expression(struct ast_context *ctx, struct ast_node **node)
 {
-    return regular_assignment(ctx);
+    return regular_assignment(ctx, node);
 }
 
 static void print_tabs(int n)
@@ -735,23 +652,15 @@ static void print_ast(struct ast_node *n, int depth)
     reset_print_color();
 }
 
-static int variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
+static void variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
 {
     struct ast_node *type_decl = NULL;
     int td = type_declaration(ctx, &type_decl);
-    if(td)
-	{
-        debug_printf("error in type declaration\n");
-		return 1;
-	}
+    ast_assert(ctx, !td, "error in type declaration");
 	if(type_decl)
     {
-        if ( accept( ctx, TK_IDENT ) )
-		{
-			debug_printf( "expected identifier for type declaration\n" );
-			return 1;
-		}
-		struct ast_node* id = identifier( ctx, ctx->current_token->string );
+        ast_expect(ctx, TK_IDENT, "expected identifier for type declaration");
+		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
 
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
         assert(ctx->function);
@@ -760,33 +669,20 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 		decl_node->variable_decl_data.data_type = type_decl;
         decl_node->variable_decl_data.initializer_value = NULL;
 
-		if ( !accept( ctx, '[' ) )
+		if ( !ast_accept( ctx, '[' ) )
 		{
 			struct ast_node* array_type_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
 			decl_node->variable_decl_data.data_type =
 				array_type_node; // set our first array type on the declaration node it's data type
 			while ( 1 )
 			{
-				if ( accept( ctx, TK_INTEGER ) )
-				{
-					debug_printf( "expected constant int array size\n" );
-					return 1;
-				}
-				int dc = ctx->current_token->integer;
-				if ( dc == 0 )
-				{
-					debug_printf( "array size can't be zero\n" );
-					return 1;
-				}
-				if ( accept( ctx, ']' ) )
-				{
-					debug_printf( "expected ] after array type declaration\n" );
-					return 1;
-				}
+                ast_expect(ctx, TK_INTEGER, "expected constant int array size");
+				int dc = ast_token(ctx)->integer;
+				ast_assert( ctx, dc > 0, "array size can't be zero" );
+                ast_expect(ctx, ']', "expected ] after array type declaration");
 				array_type_node->array_data_type_data.array_size = dc;
 				array_type_node->array_data_type_data.data_type = type_decl;
-
-				if ( accept( ctx, '[' ) )
+				if ( ast_accept( ctx, '[' ) )
 					break;
 				struct ast_node* new_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
 				array_type_node->array_data_type_data.data_type = new_node;
@@ -795,230 +691,174 @@ static int variable_declaration( struct ast_context* ctx, struct ast_node **out_
 		}
 
         //initializer value
-        if(!accept(ctx, '='))
+        if(!ast_accept(ctx, '='))
 		{
-            struct ast_node *initializer_value = expression(ctx);
-            if(!initializer_value)
-			{
-                debug_printf("expected initializer value after =\n");
-                return 1;
-			}
+            struct ast_node *initializer_value;
+            expression(ctx, &initializer_value);
+            ast_assert(ctx, initializer_value, "expected initializer value after =");
             decl_node->variable_decl_data.initializer_value = initializer_value;
 		}
 
 		*out_decl_node = decl_node;
-        return 0;
+        return;
 	}
     *out_decl_node = NULL;
-    return 0;
 }
 
 static struct ast_node *init_statement(struct ast_context *ctx)
 {
-	struct ast_node* decl_node = NULL;
-	int ret = variable_declaration( ctx, &decl_node );
-	if ( ret )
-		return NULL;
+	struct ast_node* decl_node;
+	variable_declaration( ctx, &decl_node );
     if(!decl_node)
-	{
-        decl_node = regular_assignment(ctx);
-	}
+        regular_assignment(ctx, &decl_node);
 	return decl_node;
 }
 
-static int block(struct ast_context *ctx, struct ast_node **);
-
-static struct ast_node *statement_node(struct ast_context *ctx)
+static struct ast_node *block_statement(struct ast_context *ctx)
 {
-    struct ast_node *block_node = NULL;
-    if(block(ctx, &block_node))
-        return NULL;
+	struct ast_node* n = push_node( ctx, AST_BLOCK_STMT );
+	n->block_stmt_data.body = linked_list_create( void* );
 
-    if(block_node)
-        return block_node;
+	while ( 1 )
+	{
+		if ( !ast_accept( ctx, '}' ) )
+			break;
+		struct ast_node* stmt;
+		statement( ctx, &stmt );
+		ast_assert( ctx, stmt, "expected statement" );
+		linked_list_prepend( n->block_stmt_data.body, stmt );
+	}
+	return n;
+}
+
+static struct ast_node* emit_statement( struct ast_context* ctx )
+{
+	ast_expect( ctx, TK_INTEGER, "expected integer after emit statement" );
+	int opcode = ast_token(ctx)->integer;
+	struct ast_node* n = push_node( ctx, AST_EMIT );
+	n->emit_data.opcode = opcode;
+	return n;
+}
+
+static struct ast_node* if_statement( struct ast_context* ctx )
+{
+	ast_expect( ctx, '(', "expected ( after if" );
+	struct ast_node *test, *body, *if_node;
+	if_node = push_node( ctx, AST_IF_STMT );
+	expression( ctx, &if_node->if_stmt_data.test );
+	ast_expect( ctx, ')', "expected ) after if" );
+	statement( ctx, &if_node->if_stmt_data.consequent );
+	return if_node;
+}
+
+static struct ast_node* break_statement( struct ast_context* ctx )
+{
+	// TODO: maybe move this to iteration only statements function
+	return push_node( ctx, AST_BREAK_STMT );
+}
+
+static struct ast_node* while_statement( struct ast_context* ctx )
+{
+	ast_expect( ctx, '(', "expected ( after while\n" );
+
+	struct ast_node* test, *body, *while_node;
+	expression( ctx, &test );
+	ast_assert( ctx, test, "expected expression after while" );
+	ast_expect( ctx, ')', "expected ) after while" );
+
+    statement( ctx, &body );
+	ast_assert( ctx, body, "while has no body" );
     
-    if(!accept(ctx, TK_EMIT))
+    while_node = push_node( ctx, AST_WHILE_STMT );
+	while_node->while_stmt_data.body = body;
+	while_node->while_stmt_data.test = test;
+	return while_node;
+}
+
+static struct ast_node* for_statement( struct ast_context* ctx )
+{
+	ast_expect( ctx, '(', "expected ( after for" );
+	struct ast_node *init, *test, *update;
+
+	if ( ast_accept( ctx, ';' ) )
 	{
-        if(accept(ctx, TK_INTEGER))
-            return NULL;
-        int opcode = ctx->current_token->integer;
-
-		struct ast_node* n = push_node( ctx, AST_EMIT );
-        n->emit_data.opcode = opcode;
-        return n;
-	} else if(!accept(ctx, TK_IF))
+		init = init_statement( ctx );
+		ast_assert( ctx, init, "invalid init statement in for statement block" );
+		ast_expect( ctx, ';', "expected ; after init statement" );
+	}
+	if ( ast_accept( ctx, ';' ) )
 	{
-        if(accept(ctx, '('))
-		{
-            debug_printf("expected ( after if\n");
-			return NULL;
-		}
-    	struct ast_node *test = expression(ctx);
-        if(!test)
-		{
-            debug_printf("invalid expression in if statement block\n");
-            return NULL;
-		}
-		if(accept(ctx, ')'))
-		{
-            debug_printf("expected ) after if\n");
-			return NULL;
-		}
-        struct ast_node *if_node = push_node(ctx, AST_IF_STMT);
-        if_node->if_stmt_data.test = test;
-        struct ast_node *body = statement(ctx);
-        if(!body)
-            return NULL;
-        if_node->if_stmt_data.consequent = body;
-        return if_node;
-    } else if(!accept(ctx, TK_BREAK))
-    {
-        //TODO: maybe move this to iteration only statements function
-        return push_node(ctx, AST_BREAK_STMT);
-	} else if(!accept(ctx, TK_WHILE))
+		expression( ctx, &test );
+		ast_assert( ctx, test, "invalid test expression in for statement block" );
+		ast_expect( ctx, ';', "expected ; after expression" );
+	}
+	if ( ast_accept( ctx, ')' ) )
 	{
-        if(accept(ctx, '('))
-		{
-            debug_printf("expected ( after while\n");
-			return NULL;
-		}
+		expression( ctx, &update );
+		ast_assert( ctx, update, "invalid update expression in for statement block" );
+		ast_expect( ctx, ')', "expected ) after for" );
+	}
 
-        struct ast_node *test = expression(ctx);
-        if(!test)
-		{
-            debug_printf("expected expression for while\n");
-            return NULL;
-		}
+	struct ast_node* body;
+	statement( ctx, &body );
+	ast_assert( ctx, body, "no body for for statement" );
+	struct ast_node* for_node = push_node( ctx, AST_FOR_STMT );
+	for_node->for_stmt_data.init = init;
+	for_node->for_stmt_data.test = test;
+	for_node->for_stmt_data.update = update;
+	for_node->for_stmt_data.body = body;
+	return for_node;
+}
 
-        if(accept(ctx, ')'))
-		{
-            debug_printf("expected ) after while\n");
-			return NULL;
-		}
-        
-        struct ast_node *body = statement(ctx);
-        if(!body)
-            return NULL;
-		struct ast_node* while_node = push_node( ctx, AST_WHILE_STMT );
-        while_node->while_stmt_data.body = body;
-        while_node->while_stmt_data.test = test;
-        return while_node;
-	} else if(!accept(ctx, TK_FOR))
-	{
-        if(accept(ctx, '('))
-		{
-            debug_printf("expected ( after for\n");
-			return NULL;
-		}
-
-        struct ast_node *init, *test, *update;
-        init = test = update = NULL;
-        
-        if(accept(ctx, ';'))
-        {
-			init = init_statement(ctx);
-			if ( !init )
-			{
-				debug_printf( "invalid init statement in for statement block\n" );
-				return NULL;
-			}
-            
-			if ( accept( ctx, ';' ) )
-			{
-				debug_printf( "expected ; after init statement\n" );
-				return NULL;
-			}
-		}
-        if(accept(ctx, ';'))
-        {
-			test = expression( ctx );
-			if ( !test )
-			{
-				debug_printf( "invalid test expression in for statement block\n" );
-				return NULL;
-			}
-
-			if ( accept( ctx, ';' ) )
-			{
-				debug_printf( "expected ; after expression\n" );
-				return NULL;
-			}
-		}
-        if(accept(ctx, ')'))
-        {
-			update = expression( ctx );
-			if ( !update )
-			{
-				debug_printf( "invalid update expression in for statement block\n" );
-				return NULL;
-			}
-
-			if ( accept( ctx, ')' ) )
-			{
-				debug_printf( "expected ) after for\n" );
-				return NULL;
-			}
-		}
-
-        struct ast_node *body = statement(ctx);
-        if(!body)
-            return NULL;
-		struct ast_node* for_node = push_node( ctx, AST_FOR_STMT );
-		for_node->for_stmt_data.init = init;
-		for_node->for_stmt_data.test = test;
-		for_node->for_stmt_data.update = update;
-		for_node->for_stmt_data.body = body;
-		return for_node;
-	} else if(!accept(ctx, TK_RETURN))
-	{
-        struct ast_node *ret_stmt = push_node(ctx, AST_RETURN_STMT);
-        ret_stmt->return_stmt_data.argument = expression(ctx);
-        if(!ret_stmt->return_stmt_data.argument)
-            return NULL;
+static struct ast_node* return_statement( struct ast_context* ctx )
+{
+	struct ast_node* ret_stmt = push_node( ctx, AST_RETURN_STMT );
+	ret_stmt->return_stmt_data.argument = NULL;
+	if ( !ast_accept( ctx, ';' ) )
 		return ret_stmt;
-	}
-    return init_statement(ctx);
+	expression( ctx, &ret_stmt->return_stmt_data.argument );
+	return ret_stmt;
 }
 
-static struct ast_node *statement(struct ast_context *ctx)
+static struct ast_node_type_function statements[] = {
+    { TK_EMIT, emit_statement },
+    { TK_IF, if_statement },
+    { TK_BREAK, break_statement },
+    { TK_WHILE, while_statement },
+    { TK_FOR, for_statement },
+    { TK_RETURN, return_statement },
+    { '{', block_statement }
+};
+
+static void statement_node(struct ast_context *ctx, struct ast_node **node)
 {
-    if(!accept(ctx, ';'))
+    *node = NULL;
+    for(int i = 0; i < COUNT_OF(statements); ++i)
 	{
-		struct ast_node* n = push_node( ctx, AST_EMPTY );
-		return n;
+        if(!ast_accept(ctx, statements[i].type))
+		{
+            *node = statements[i].function(ctx);
+            return;
+		}
 	}
-	struct ast_node* stmt = statement_node( ctx );
-	if ( stmt )
-		if ( stmt->type == AST_BLOCK_STMT || stmt->type == AST_IF_STMT || stmt->type == AST_WHILE_STMT || stmt->type == AST_FOR_STMT )
-			return stmt;
-	if ( accept( ctx, ';' ) )
-	{
-		debug_printf( "expected ; after statement '%s' got '%s'\n", stmt ? AST_NODE_TYPE_to_string(stmt->type) : "null", token_type_to_string( ctx->current_token->type ) );
-		return NULL;
-	}
-	return stmt;
+	*node = init_statement(ctx);
 }
 
-//TODO: free/cleanup linked lists statements in block ast nodes either through zone allocation or manually
-static int block(struct ast_context *ctx, struct ast_node **node_out)
+static void statement(struct ast_context *ctx, struct ast_node **node)
 {
-    if(accept(ctx, '{'))
-        return 0;
-    
-    struct ast_node *n = push_node(ctx, AST_BLOCK_STMT);
-    n->block_stmt_data.body = linked_list_create(void*);
-
-    while(1)
+    if(!ast_accept(ctx, ';'))
 	{
-		if(!accept(ctx, '}'))
-            break;
-        struct ast_node *stmt = statement(ctx);
-        if(!stmt)
-            return 1;
-        linked_list_prepend(n->block_stmt_data.body, stmt);
+		*node = push_node( ctx, AST_EMPTY );
+        return;
 	}
-    *node_out = n;
-    return 0;
+	statement_node( ctx, node );
+    int type = (*node)->type;
+	if ( type == AST_BLOCK_STMT || type == AST_IF_STMT || type == AST_WHILE_STMT ||
+		 type == AST_FOR_STMT )
+	{
+        return;
+	}
+	ast_expect(ctx, ';', "expected ; after statement");
 }
 
 static struct ast_node *program(struct ast_context *ctx)
@@ -1028,78 +868,56 @@ static struct ast_node *program(struct ast_context *ctx)
     
     while(1)
     {
-        if(!accept(ctx, TK_EOF)) break;
+        if(!ast_accept(ctx, TK_EOF)) break;
         
         struct ast_node* type_decl = NULL;
         int td = type_declaration( ctx , &type_decl );
-        if(td)
-		{
-            debug_printf("error in type declaration\n");
-			return NULL;
-		}
-		if ( type_decl )
-		{
-			struct ast_node *decl = push_node(ctx, AST_FUNCTION_DECL);
-            decl->func_decl_data.return_data_type = type_decl;
-            decl->func_decl_data.numparms = 0;
-            decl->func_decl_data.variadic = 0;
-            decl->func_decl_data.numdeclarations = 0;
-            ctx->function = decl;
-            if(accept(ctx, TK_IDENT))
-            {
-                debug_printf("expected ident after function\n");
-                return NULL;
-            }
-            struct ast_node *id = identifier(ctx, ctx->current_token->string);
-            decl->func_decl_data.id = id;
-            if(accept(ctx, '('))
-            {
-                debug_printf("expected ( after function\n");
-                return NULL;
-            }
+        ast_assert(ctx, !td, "error in type declaration");
+		// TODO: implement global variables assignment, function prototypes and a preprocessor
+		if ( !type_decl )
+			ast_error( ctx, "expected function return type got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
+        
+		struct ast_node* decl = push_node( ctx, AST_FUNCTION_DECL );
+		decl->func_decl_data.return_data_type = type_decl;
+		decl->func_decl_data.numparms = 0;
+		decl->func_decl_data.variadic = 0;
+		decl->func_decl_data.numdeclarations = 0;
+		ctx->function = decl;
 
-            struct ast_node *parm_decl = NULL;
-            while(1)
+		ast_expect( ctx, TK_IDENT, "expected ident after function" );
+		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
+		decl->func_decl_data.id = id;
+		ast_expect( ctx, '(', "expected ( after function" );
+
+		struct ast_node* parm_decl = NULL;
+		while ( 1 )
+		{
+			if ( !ast_accept( ctx, TK_DOT_THREE_TIMES ) )
 			{
-                if(!accept(ctx, TK_DOT_THREE_TIMES))
-				{
-                    decl->func_decl_data.variadic = 1;
-					break;
-				}
-				int ret = variable_declaration( ctx, &parm_decl );
-                if(ret)
-                    return NULL;
-
-                if(parm_decl == NULL)
-                    break;
-                
-                assert(parm_decl->variable_decl_data.id->type == AST_IDENTIFIER);
-                //debug_printf("func parm %s\n", parm_decl->variable_decl_data.id->identifier_data.name);
-                
-                decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = parm_decl;
-                
-                if(accept(ctx, ','))
-                    break;
+				decl->func_decl_data.variadic = 1;
+				break;
 			}
+			variable_declaration( ctx, &parm_decl );
             
-            if(accept(ctx, ')'))
-            {
-                debug_printf("expected ( after function\n");
-                return NULL;
-            }
+			if ( parm_decl == NULL )
+				break;
 
-            struct ast_node *block_node = NULL;
-            if(block(ctx, &block_node))
-                return NULL;
-            decl->func_decl_data.body = block_node;
-            linked_list_prepend(program_node->program_data.body, decl);
+			assert( parm_decl->variable_decl_data.id->type == AST_IDENTIFIER );
+			// debug_printf("func parm %s\n", parm_decl->variable_decl_data.id->identifier_data.name);
+
+			decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = parm_decl;
+
+			if ( ast_accept( ctx, ',' ) )
+				break;
 		}
-		else
-		{
-            //TODO: implement global variables assignment, function prototypes and a preprocessor
-            debug_printf("expected function return type got '%s'\n", token_type_to_string(ctx->current_token->type));
-            return NULL;
-		}
+
+		ast_expect( ctx, ')', "expected ) after function" );
+
+		struct ast_node* block_node;
+        statement_node(ctx, &block_node);
+        ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
+		decl->func_decl_data.body = block_node;
+		linked_list_prepend( program_node->program_data.body, decl );
 	}
     return program_node;
 }
@@ -1108,16 +926,23 @@ static struct ast_node *program(struct ast_context *ctx)
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool verbose)
 {
     struct ast_context context = {
-		.tokens = tokens,
-        .num_tokens = num_tokens,
-        .token_index = 0,
         .root_node = NULL,
         .node_list = NULL,
         .verbose = verbose,
-        .done = 0,
-        .error = 0,
-        .function = NULL
+        .function = NULL,
+        .last_node = NULL
     };
+
+    context.parse_context.current_token = NULL;
+    context.parse_context.num_tokens = num_tokens;
+    context.parse_context.token_index = 0;
+    context.parse_context.tokens = tokens;
+
+    if(setjmp(context.jmp))
+    {
+        printf("generating AST failed\n");
+		goto fail;
+    }
     
 	context.node_list = linked_list_create( struct ast_node );
     context.root_node = program(&context);
@@ -1131,7 +956,7 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         *ll = context.node_list;
         return 0;
     }
-    
+fail:
     linked_list_destroy(&context.node_list);
 	return 1;
 }
