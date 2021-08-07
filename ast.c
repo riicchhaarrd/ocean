@@ -327,7 +327,7 @@ static void factor( struct ast_context* ctx, struct ast_node **node )
 static void postfix(struct ast_context *ctx, struct ast_node **node)
 {
     factor(ctx, node);
-    if(!ast_accept(ctx, TK_PLUS_PLUS) || !ast_accept(ctx, TK_MINUS_MINUS))
+    while(!ast_accept(ctx, TK_PLUS_PLUS) || !ast_accept(ctx, TK_MINUS_MINUS))
         *node = unary_expr(ctx, ast_token(ctx)->type, 0, *node);
 }
 
@@ -433,7 +433,7 @@ static void ternary(struct ast_context *ctx, struct ast_node **node)
 {
     bitwise_or(ctx, node);
     
-    if(!ast_accept(ctx, '?'))
+    while(!ast_accept(ctx, '?'))
     {
     	struct ast_node *consequent, *alternative, *ternary_node;
         bitwise_or(ctx, &consequent);
@@ -454,7 +454,7 @@ static void regular_assignment(struct ast_context *ctx, struct ast_node **node)
 	static const int assignment_operators[] = {'=',TK_PLUS_ASSIGN,TK_MINUS_ASSIGN,TK_DIVIDE_ASSIGN,TK_MULTIPLY_ASSIGN,TK_MOD_ASSIGN,TK_AND_ASSIGN,TK_OR_ASSIGN,TK_XOR_ASSIGN};
     for(int i = 0; i < COUNT_OF(assignment_operators); ++i)
 	{
-        if ( !ast_accept( ctx, assignment_operators[i] ) )
+        while ( !ast_accept( ctx, assignment_operators[i] ) )
 		{
             int operator = ast_token(ctx)->type;
 			struct ast_node* rhs;
@@ -560,6 +560,7 @@ static void print_ast(struct ast_node *n, int depth)
         for(int i = 0; i < numargs; ++i)
 		{
             printf("\targ %d: %s\n", i, AST_NODE_TYPE_to_string(args[i]->type));
+            print_ast(args[i], depth + 1);
 		}
 	} break;
 
