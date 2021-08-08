@@ -3,10 +3,14 @@ void exit(int code)
     syscall(1, code);
 }
 
-int atoi(const char *str)
+int atoi(const char *_str)
 {
     int total = 0;
     int len = 0;
+    const char *str = _str;
+    int neg = *str == '-';
+    if(neg)
+        ++str;
     const char *p = str;
     while(*p++) ++len;
     int exp = 1;
@@ -16,5 +20,7 @@ int atoi(const char *str)
         total += t * exp;
         exp *= 10;
 	}
+    if(neg)
+        return -total;
 	return total;
 }
