@@ -184,7 +184,7 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
     type_qualifiers(ctx, &pre_qualifiers);
     
 	if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
-		 !ast_accept( ctx, TK_T_FLOAT ) || !ast_accept( ctx, TK_T_DOUBLE ) || !ast_accept( ctx, TK_T_NUMBER ) || !ast_accept(ctx, TK_T_VOID))
+		 !ast_accept( ctx, TK_T_FLOAT ) || !ast_accept( ctx, TK_T_DOUBLE ) || !ast_accept(ctx, TK_T_VOID))
 	{
 		int primitive_type = ast_token(ctx)->type - TK_T_CHAR;
         
@@ -316,18 +316,22 @@ static void factor( struct ast_context* ctx, struct ast_node **node )
         if(!ast_accept(ctx, factors[i].type))
 		{
 			*node = factors[i].function( ctx );
-
-			while ( !ast_accept( ctx, TK_PLUS_PLUS ) || !ast_accept( ctx, TK_MINUS_MINUS ) )
-				*node = unary_expr( ctx, ast_token( ctx )->type, 0, *node );
 			return;
 		}
 	}
 	ast_error(ctx, "expected factor");
 }
 
+static void postfix(struct ast_context *ctx, struct ast_node **node)
+{
+    factor(ctx,node);
+	while ( !ast_accept( ctx, TK_PLUS_PLUS ) || !ast_accept( ctx, TK_MINUS_MINUS ) )
+		*node = unary_expr( ctx, ast_token( ctx )->type, 0, *node );
+}
+
 static void array_subscripting(struct ast_context *ctx, struct ast_node **node)
 {
-    factor(ctx, node);
+    postfix(ctx, node);
     while(!ast_accept(ctx, '['))
     {
         struct ast_node *rhs;
