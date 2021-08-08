@@ -629,6 +629,33 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 		break;
 		}
 	} break;
+    
+    case AST_TERNARY_EXPR:
+	{
+        struct ast_node *consequent = n->ternary_expr_data.consequent;
+        struct ast_node *condition = n->ternary_expr_data.condition;
+        struct ast_node *alternative = n->ternary_expr_data.alternative;
+
+        process(ctx, condition);
+		// test eax,eax
+		db( ctx, 0x85 );
+		db( ctx, 0xc0 );
+
+		// jz rel32
+		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
+		db( ctx, 0x0f );
+		db( ctx, 0x84 );
+		dd( ctx, 0x0 ); // placeholder
+        
+        process(ctx, consequent);
+        
+		int jmp_pos = instruction_position( ctx );
+		db( ctx, 0xe9 );
+		dd( ctx, 0x0 ); // placeholder
+        set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
+        process(ctx, alternative);
+        set32( ctx, jmp_pos + 1, instruction_position( ctx ) - jmp_pos - 5 );
+	} break;
 
 	case AST_BIN_EXPR:
     {
@@ -1289,7 +1316,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         } );
     } break;
 
-    case AST_DO_WHILE_STMT:
+	case AST_DO_WHILE_STMT:
 	{
         struct scope scope;
         enter_scope(ctx, &scope);
