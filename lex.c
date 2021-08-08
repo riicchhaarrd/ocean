@@ -124,6 +124,17 @@ static int match_test_integer(int ch)
     return ch >= '0' && ch <= '9';
 }
 
+static int byte_value(int ch)
+{
+    if(ch >= '0' && ch <= '9')
+        return ch - '0';
+    if(ch >= 'a' && ch <= 'z')
+        return ch - 'a' + 10;
+    if(ch >= 'A' && ch <= 'Z')
+        return ch - 'A' + 10;
+    return -1;
+}
+
 static int token(struct lexer *lex, struct token *tk)
 {
     int single_line_comment = 0;
@@ -331,7 +342,24 @@ retry:
         return 0;
 
 	default:
-	    if(match_test_integer(ch))
+        if(ch == '0' && !next_check(lex, 'x'))
+		{
+            tk->type=TK_INTEGER;
+            tk->integer = 0;
+            while(1)
+			{
+                int nch = next(lex);
+                if(nch == -1)
+					return 1;
+				int bv = byte_value( nch );
+				if ( bv == -1 )
+				{
+					--lex->pos;
+					break;
+				}
+                tk->integer = (tk->integer << 4) | (bv & 0xf);
+			}
+		} else if(match_test_integer(ch))
 	    {
 		tk->type = TK_INTEGER;
 		heap_string s = next_match(lex, match_test_integer);
