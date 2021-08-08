@@ -169,8 +169,6 @@ static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
     *qualifiers = TQ_NONE;
     if(!ast_accept(ctx, TK_CONST))
         *qualifiers |= TQ_CONST;
-    else if(!ast_accept(ctx, TK_T_UNSIGNED))
-        *qualifiers |= TQ_UNSIGNED;
     else
         return 1;
     return 0;
@@ -318,22 +316,18 @@ static void factor( struct ast_context* ctx, struct ast_node **node )
         if(!ast_accept(ctx, factors[i].type))
 		{
 			*node = factors[i].function( ctx );
-            return;
+
+			while ( !ast_accept( ctx, TK_PLUS_PLUS ) || !ast_accept( ctx, TK_MINUS_MINUS ) )
+				*node = unary_expr( ctx, ast_token( ctx )->type, 0, *node );
+			return;
 		}
 	}
 	ast_error(ctx, "expected factor");
 }
 
-static void postfix(struct ast_context *ctx, struct ast_node **node)
-{
-    factor(ctx, node);
-    while(!ast_accept(ctx, TK_PLUS_PLUS) || !ast_accept(ctx, TK_MINUS_MINUS))
-        *node = unary_expr(ctx, ast_token(ctx)->type, 0, *node);
-}
-
 static void array_subscripting(struct ast_context *ctx, struct ast_node **node)
 {
-    postfix(ctx, node);
+    factor(ctx, node);
     while(!ast_accept(ctx, '['))
     {
         struct ast_node *rhs;
@@ -573,6 +567,15 @@ static void print_ast(struct ast_node *n, int depth)
         print_ast(consequent, depth + 1);
     } break;
 
+	case AST_WHILE_STMT:
+	{
+		struct ast_node* test = n->while_stmt_data.test;
+		printf( "while statement\n" );
+		print_ast( test, depth + 1 );
+		print_ast( n->while_stmt_data.body, depth + 1 );
+	}
+	break;
+    
     case AST_MEMBER_EXPR:
     {
         printf("member expression\n");

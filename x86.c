@@ -375,6 +375,12 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 
     case AST_MEMBER_EXPR:
         return data_type_operand_size(ctx, n->member_expr_data.object, 0);
+    case AST_WHILE_STMT:
+        return data_type_operand_size(ctx, n->while_stmt_data.test, ptr);
+    case AST_FOR_STMT:
+        return data_type_operand_size(ctx, n->for_stmt_data.test, ptr);
+    case AST_UNARY_EXPR:
+        return data_type_operand_size(ctx, n->unary_expr_data.argument, ptr);
 	}
 	debug_printf( "unhandled data type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 	return 0;
@@ -505,6 +511,29 @@ static void ast_handle_assignment_expression( struct compile_context* ctx, struc
 		break;
 	}
     pop(ctx, EBX);
+}
+
+static void load_operand(struct compile_context *ctx, struct ast_node *n)
+{
+	int os = data_type_operand_size( ctx, n, 0 );
+	switch ( os )
+	{
+	case IMM32:
+		// mov eax, [ebx]
+		db( ctx, 0x8b );
+		db( ctx, 0x03 );
+		break;
+	case IMM8:
+		// movzx eax, byte [ebx]
+		db( ctx, 0x0f );
+		db( ctx, 0xb6 );
+		db( ctx, 0x03 );
+		break;
+	default:
+		debug_printf( "unhandled regsz '%d' for load_operand \n", os );
+		exit( 1 );
+		break;
+	}
 }
 
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
@@ -829,32 +858,12 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         struct ast_node *object = n->member_expr_data.object;
         struct ast_node *property = n->member_expr_data.property;
         rvalue(ctx, EBX, object);
-
+        
         struct ast_node *dn = identifier_data_node(ctx, object);
-        int dt = dn->type;
-        assert(dt == AST_ARRAY_DATA_TYPE || dt == AST_POINTER_DATA_TYPE);
-        int os = data_type_operand_size(ctx, dn, 0);
         
         rvalue( ctx, reg, n->member_expr_data.property );
         add( ctx, EBX, reg );
-		switch ( os )
-		{
-		case IMM32:
-			// mov eax, [ebx]
-			db( ctx, 0x8b );
-			db( ctx, 0x03 );
-			break;
-		case IMM8:
-			// movzx eax, byte [ebx]
-			db( ctx, 0x0f );
-			db( ctx, 0xb6 );
-			db( ctx, 0x03 );
-			break;
-		default:
-			debug_printf( "unhandled regsz for []\n" );
-			exit( 1 );
-			break;
-		}
+        load_operand(ctx, dn);
 	} break;
     
     case AST_UNARY_EXPR:
