@@ -374,6 +374,8 @@ retry:
 		    tk->type = TK_FOR;
 		else if(!strcmp(s, "while"))
 		    tk->type = TK_WHILE;
+		else if(!strcmp(s, "do"))
+		    tk->type = TK_DO;
 		else if(!strcmp(s, "if"))
 		    tk->type = TK_IF;
         else if(!strcmp(s, "return"))

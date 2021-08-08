@@ -46,6 +46,7 @@ enum TOKEN_TYPE
     TK_IF,
     TK_FOR,
     TK_WHILE,
+    TK_DO,
     TK_RETURN,
     TK_BREAK,
     TK_LOOP,

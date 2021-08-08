@@ -127,6 +127,12 @@ struct ast_while_stmt
     struct ast_node *body;
 };
 
+struct ast_do_while_stmt
+{
+    struct ast_node *test;
+    struct ast_node *body;
+};
+
 struct ast_function_decl
 {
     struct ast_node *id;
@@ -248,6 +254,7 @@ struct ast_node
         struct ast_if_stmt if_stmt_data;
         struct ast_for_stmt for_stmt_data;
         struct ast_while_stmt while_stmt_data;
+        struct ast_do_while_stmt do_while_stmt_data;
         struct ast_function_decl func_decl_data;
         struct ast_program program_data;
         struct ast_return_stmt return_stmt_data;

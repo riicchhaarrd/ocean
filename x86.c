@@ -377,6 +377,8 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
         return data_type_operand_size(ctx, n->member_expr_data.object, 0);
     case AST_WHILE_STMT:
         return data_type_operand_size(ctx, n->while_stmt_data.test, ptr);
+    case AST_DO_WHILE_STMT:
+        return data_type_operand_size(ctx, n->do_while_stmt_data.test, ptr);
     case AST_FOR_STMT:
         return data_type_operand_size(ctx, n->for_stmt_data.test, ptr);
     case AST_UNARY_EXPR:
@@ -1287,6 +1289,31 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         } );
     } break;
 
+    case AST_DO_WHILE_STMT:
+	{
+        struct scope scope;
+        enter_scope(ctx, &scope);
+        int jmp_beg = instruction_position(ctx);
+        
+        process(ctx, n->while_stmt_data.body);
+        process(ctx, n->while_stmt_data.test);
+        
+		// test eax,eax
+		db( ctx, 0x85 );
+		db( ctx, 0xc0 );
+
+        int jmp_end = instruction_position(ctx);
+        
+		// jnz rel32
+		db( ctx, 0x0f );
+		db( ctx, 0x85 );
+		dd( ctx,  jmp_beg - jmp_end - 6 );
+        
+        for(int i = 0; i < scope.numbreaks; ++i)
+			set32( ctx, scope.breaks[i] + 1, instruction_position( ctx ) - scope.breaks[i] - 5 );
+		exit_scope(ctx);
+	} break;
+    
     case AST_WHILE_STMT:
 	{
         struct scope scope;

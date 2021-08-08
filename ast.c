@@ -783,6 +783,27 @@ static struct ast_node* while_statement( struct ast_context* ctx )
 	return while_node;
 }
 
+static struct ast_node* do_statement( struct ast_context* ctx )
+{
+	struct ast_node* test, *body, *node;
+    
+    statement( ctx, &body );
+	ast_assert( ctx, body, "do has no body" );
+    ast_expect(ctx, TK_WHILE, "expected while after do statement");
+    
+	ast_expect( ctx, '(', "expected ( after while\n" );
+
+	expression( ctx, &test );
+	ast_assert( ctx, test, "expected expression after while" );
+    
+	ast_expect( ctx, ')', "expected ) after while" );
+    
+    node = push_node( ctx, AST_DO_WHILE_STMT );
+    node->do_while_stmt_data.body = body;
+    node->do_while_stmt_data.test = test;
+    return node;
+}
+
 static struct ast_node* for_statement( struct ast_context* ctx )
 {
 	ast_expect( ctx, '(', "expected ( after for" );
@@ -833,6 +854,7 @@ static struct ast_node_type_function statements[] = {
     { TK_IF, if_statement },
     { TK_BREAK, break_statement },
     { TK_WHILE, while_statement },
+    { TK_DO, do_statement },
     { TK_FOR, for_statement },
     { TK_RETURN, return_statement },
     { '{', block_statement }
