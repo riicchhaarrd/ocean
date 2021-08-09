@@ -28,6 +28,15 @@ It does not list every however small it be functionality of C, like statements/e
 	- [ ] builtin string type that keeps track of it's capacity/size/hash and when comparing first just compares the hash then if true the actual data or index based strings
 	- [ ] struct members default values
 	- [ ] coroutines by either saving entire stack for that function to heap or incorporating some message system notify/waittill (https://github.com/riicchhaarrd/gsc) sort of like sleeping functions that will wake up once you call notify on some key
+	- [ ] more math operators / integration
+		- cross/dot operator (e.g a cross b dot c)
+
+		- backtick or other operator e.g math to evaluate math expressions as they are in math (e.g ` or math(a . c x b) either with x . or × and ⋅ like sizeof(int))
+
+		- parse LaTeX (e.g \[ \vec{a}\cdot\vec{b} = |\vec{a}||\vec{b}|\cos\theta \]
+		$W = \vec{F}\cdot\vec{d} = F\cos\theta d$)
+
+		- integrate some form of a symbolic language like wolfram or error on results that can't be solved/indeterminate/don't make sense in code
 - [ ] target other ISA (instruction set architectures) e.g ARM/x86_64
 - [ ] better error handling / memory cleanup
 - [ ] LLVM or other IR backend (atm just targeting x86 and it's a great learning exercise)
