@@ -60,21 +60,47 @@ enum TOKEN_TYPE
     TK_INVALID = -1
 };
 
-static const char *token_type_strings[TK_MAX] = {
+static const char* token_type_strings[TK_MAX] = {
 	[TK_IDENT] = "ident",
-    [TK_INTEGER] = "integer",
-    [TK_STRING] = "string",
-    [TK_NUMBER] = "number",
-
-    
-    [TK_LSHIFT] = "lshift",
-    [TK_RSHIFT] = "rshift",
-    [TK_EQUAL] = "equal",
-    
-    [TK_IF] = "if",
-    [TK_FOR] = "for",
-    [TK_LOOP] = "loop",
-    [TK_EOF] = "eof"
+	[TK_INTEGER] = "integer",
+	[TK_STRING] = "string",
+	[TK_NUMBER] = "number",
+	[TK_PLUS_ASSIGN] = "+=",
+	[TK_MINUS_ASSIGN] = "-=",
+	[TK_MULTIPLY_ASSIGN] = "*=",
+	[TK_DIVIDE_ASSIGN] = "/=",
+	[TK_AND_ASSIGN] = "&=",
+	[TK_OR_ASSIGN] = "|=",
+	[TK_XOR_ASSIGN] = "^=",
+	[TK_MOD_ASSIGN] = "%=",
+	[TK_GEQUAL] = ">=",
+	[TK_LEQUAL] = "<=",
+	[TK_T_CHAR] = "char",
+	[TK_T_SHORT] = "short",
+	[TK_T_INT] = "int",
+	[TK_T_FLOAT] = "float",
+	[TK_T_DOUBLE] = "double",
+	[TK_T_NUMBER] = "number",
+	[TK_T_VOID] = "void",
+	[TK_T_UNSIGNED] = "unsigned",
+	[TK_CONST] = "const",
+	[TK_SIZEOF] = "sizeof",
+	[TK_LSHIFT] = "<<",
+	[TK_RSHIFT] = ">>",
+	[TK_EQUAL] = "==",
+	[TK_NOT_EQUAL] = "!=",
+	[TK_IF] = "if",
+	[TK_FOR] = "for",
+	[TK_WHILE] = "while",
+	[TK_DO] = "do",
+	[TK_RETURN] = "return",
+	[TK_BREAK] = "break",
+	[TK_LOOP] = "loop",
+	[TK_EMIT] = "emit",
+	[TK_DOT_THREE_TIMES] = "...",
+	[TK_PLUS_PLUS] = "++",
+	[TK_MINUS_MINUS] = "--",
+	[TK_EOF] = "eof"
 };
 
 static const int is_token_printable(int type)
@@ -107,7 +133,7 @@ struct token
         float vector[4];
     };
     int lineno;
-    int curpos;
+    int start, end;
 };
 
 
