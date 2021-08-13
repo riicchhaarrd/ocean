@@ -1,1 +1,1 @@
-./build && ./ocean $1 e -d && gdb bin/example.elf -ex layout\ asm -ex tui\ reg\ all
+./build && ./ocean $1 -d bin/example.elf && gdb bin/example.elf -ex layout\ asm -ex tui\ reg\ all
