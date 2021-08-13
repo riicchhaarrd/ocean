@@ -66,10 +66,11 @@ int main( int argc, char** argv )
     int is_exe = strstr(dst, ".exe") != NULL;
     
     /* pre.c */
-    heap_string preprocess_file(const char *filename);
-    heap_string data = preprocess_file( src );
+	heap_string preprocess_file( const char* filename, const char** includepaths, int verbose );
+	const char* includepaths[] = { "examples/include/", NULL };
+	heap_string data = preprocess_file( src, includepaths, 0 );
 
-    if ( !data )
+	if ( !data )
     {
 	    printf( "failed to read file '%s'\n", src );
 	    return 1;
