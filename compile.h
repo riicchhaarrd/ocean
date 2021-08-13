@@ -59,8 +59,16 @@ struct relocation
     int to;
 };
 
+enum BUILD_TARGET
+{
+    BT_UNKNOWN,
+    BT_LINUX,
+    BT_WINDOWS
+};
+
 struct compile_context
 {
+    int build_target;
     u32 entry;
     heap_string data;
 

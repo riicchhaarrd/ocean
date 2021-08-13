@@ -207,7 +207,7 @@ static void process(struct compile_context *ctx, struct ast_node *n);
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
     //printf("func call %s\n", function_name);
-    if(!strcmp(function_name, "syscall"))
+    if(!strcmp(function_name, "syscall") && ctx->build_target == BT_LINUX)
     {
         int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
         assert(numargs > 0);

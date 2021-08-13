@@ -7,8 +7,10 @@
 
 enum OPT_FLAG
 {
-	OPT_VERBOSE,
-    OPT_DEBUG
+	OPT_VERBOSE = 1,
+    OPT_DEBUG = 2,
+    OPT_AST = 4,
+    OPT_INSTR = 8
 };
 
 extern int opt_flags;

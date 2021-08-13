@@ -12,6 +12,18 @@ struct parse_context
     jmp_buf jmp;
 };
 
-int parse_accept(struct parse_context *ctx, int type);
-struct token *parse_token(struct parse_context *ctx);
+enum LEX_FLAG
+{
+    LEX_FL_NONE = 0,
+    LEX_FL_NEWLINE_TOKEN = 1,
+    LEX_FL_BACKSLASH_TOKEN = 2
+};
+
+void parse(const char*, struct token**, int*, int);
+int parse_accept( struct parse_context* ctx, int type );
+struct token* parse_token( struct parse_context* ctx );
+void parse_initialize( struct parse_context* ctx );
+int parse_string( struct parse_context* ctx, const char* str, int );
+void parse_cleanup( struct parse_context* ctx );
+struct token* parse_advance( struct parse_context* ctx );
 #endif

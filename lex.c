@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include "parse.h"
 #include "token.h"
 #include "rhd/heap_string.h"
 #include "rhd/linked_list.h"
@@ -14,6 +14,7 @@ struct lexer
     int lineno;
     struct linked_list *tokens;
     int savepos;
+    int flags;
 };
 
 static int next(struct lexer *lex)
@@ -142,7 +143,6 @@ static int token(struct lexer *lex, struct token *tk)
     int ch;
 retry:
     ch = next(lex);
-    tk->curpos = lex->pos;
     tk->lineno = lex->lineno + 1;
     if(ch == -1)
 		return 1;
@@ -163,15 +163,20 @@ retry:
 
 	tk->type = ch;
     switch(ch)
-    {
+	{
 	case '\n':
-        ++lex->lineno;
+		++lex->lineno;
+		if ( lex->flags & LEX_FL_NEWLINE_TOKEN )
+		{
+            tk->type = '\n';
+			return 0;
+		}
 	case ' ':
 	case '\t':
 	case '\r':
-	    goto retry;
+		goto retry;
 
-    case '<':
+	case '<':
         if(!next_check(lex, '<'))
         {
             tk->type = TK_LSHIFT;
@@ -326,7 +331,13 @@ retry:
             restore(lex);
         break;
 
-    case '#':
+	case '\\':
+        if(lex->flags & LEX_FL_BACKSLASH_TOKEN)
+		{
+            tk->type = '\\';
+            return 0;
+		}
+	case '#':
 	case '{':
 	case '}':
 	case '[':
@@ -337,7 +348,6 @@ retry:
 	case ')':
 	case ';':
 	case ':':
-	case '\\':
 	case ',':
         return 0;
 
@@ -411,11 +421,11 @@ retry:
 		return 1; //error
 	    }
 	    break;
-    }
-    return 0;
+	}
+	return 0;
 }
 
-void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *num_tokens)
+void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *num_tokens, int flags)
 {
     *tokens_out = NULL;
 	*num_tokens = 0;
@@ -427,15 +437,20 @@ void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *n
         .bufsz = strlen(data) + 1,
         .pos = 0,
         .lineno = 0,
-        .tokens = NULL
+        .tokens = NULL,
+        .flags = flags
     };
 
 	lex.tokens = linked_list_create( struct token );
 
 	struct token tk = { 0 };
+    struct token *end = NULL;
 
 	for ( int i = 0; i < len; ++i )
 	{
+        if(end)
+            end->end = lex.pos;
+        tk.start = lex.pos;
 		int ret = token( &lex, &tk );
 		if ( ret )
 		{
@@ -443,9 +458,11 @@ void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *n
 		}
 		// if(tk.type == TK_IDENT)
 		//printf("token = %s (%s)\n", token_type_to_string(tk.type), tk.string);
-		linked_list_prepend( lex.tokens, tk );
+		end = linked_list_prepend( lex.tokens, tk );
         (*num_tokens)++;
 	}
+
+    end->end = lex.pos;
 
     //allocate num_tokens
     struct token *tokens = malloc(sizeof(struct token) * *num_tokens);
