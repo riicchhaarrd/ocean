@@ -1,0 +1,2 @@
+#!/bin/bash
+gcc -m32 -g -DSTANDALONE parse.c lex.c pre.c -o pre

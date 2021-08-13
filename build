@@ -5,7 +5,4 @@
 #find . -name '*.c' -print -or -name "*.h" -print | grep -v ccls | grep -v examples | xargs etags --append
 
 # build compiler
-gcc -m32 -g main.c lex.c ast.c x86.c elf.c pre.c parse.c -o ocean
-
-# build preprocessor
-gcc -m32 -g -DSTANDALONE pre.c -o pre
+gcc -m32 -g main.c lex.c ast.c x86.c pe.c elf.c pre.c parse.c -o ocean
