@@ -222,7 +222,7 @@ static void handle_define_ident( struct pre_context* ctx, struct define_directiv
 	}
 }
 
-heap_string preprocess_file(const char *filename, const char **includepaths, int verbose);
+heap_string preprocess_file(const char *filename, const char **includepaths, int verbose, struct hash_map *defines, struct hash_map **defines_out);
 static int handle_token( struct pre_context *ctx, heap_string* preprocessed, struct token* tk, int *handled )
 {
     *handled = 0;
@@ -280,7 +280,10 @@ static int handle_token( struct pre_context *ctx, heap_string* preprocessed, str
 			// printf("including '%s'\n", includepath);
 
 			heap_string locatedincludepath = locate_include_file( ctx, includepath );
-			heap_string includedata = preprocess_file( locatedincludepath, ctx->includepaths, ctx->verbose );
+            struct hash_map *defines = NULL;
+			heap_string includedata = preprocess_file( locatedincludepath, ctx->includepaths, ctx->verbose, ctx->identifiers , &defines );
+            //TODO: FIXME free current defines
+            ctx->identifiers = defines;
 			heap_string_free( &locatedincludepath );
 			// heap_string includedata = locate_and_read_include_file(ctx, includepath);
 			if ( !includedata )
@@ -422,7 +425,32 @@ heap_string preprocess( struct pre_context* ctx )
 	return preprocessed;
 }
 
-heap_string preprocess_file(const char *filename, const char **includepaths, int verbose)
+struct hash_map *copy_definitions(struct hash_map *o)
+{
+    assert(o);
+    struct hash_map *n = hash_map_create(struct define_directive);
+    //TODO: move this to rhd and name it something like iterate keys or entries
+	for ( size_t i = 0; i < o->bucket_size; ++i )
+	{
+		struct hash_bucket* bucket = &o->buckets[i];
+		if ( bucket->head == NULL )
+			continue; // skip.. empty bucket
+		struct hash_bucket_entry* cur = bucket->head;
+		while ( cur != NULL )
+		{
+			struct define_directive* od = (struct define_directive*)cur->data;
+			struct define_directive nd = { .identifier = heap_string_new( od->identifier ),
+										   .body = heap_string_new( od->body ),
+										   .function = od->function,
+										   .numparameters = od->numparameters };
+			hash_map_insert( n, cur->key, nd );
+			cur = cur->next;
+		}
+	}
+    return n;
+}
+
+heap_string preprocess_file(const char *filename, const char **includepaths, int verbose, struct hash_map *defines, struct hash_map **defines_out )
 {
     int success = 1;
     heap_string result_data = NULL;
@@ -432,7 +460,7 @@ heap_string preprocess_file(const char *filename, const char **includepaths, int
     heap_string dir = filepath(filename);
     struct pre_context ctx = {
         .includes = linked_list_create(struct include_directive),
-        .identifiers = hash_map_create(struct define_directive),
+        .identifiers = defines ? copy_definitions(defines) : hash_map_create(struct define_directive),
         //TODO: FIXME add the source file that's including this file it's defines aswell / either through list or just copying the identifiers
         .data = data,
         .includepaths = includepaths,
@@ -457,8 +485,10 @@ heap_string preprocess_file(const char *filename, const char **includepaths, int
 	}
 	parse_cleanup(&ctx.parse_context);
     heap_string_free(&data);
-    heap_string_free(&dir);
-    return result_data;
+	heap_string_free( &dir );
+	if ( defines_out )
+		*defines_out = ctx.identifiers;
+	return result_data;
 }
 
 #ifdef STANDALONE
@@ -501,7 +531,7 @@ int main(int argc, char **argv)
 		printf( "src=%s\n", source_filename );
 	}
 
-	heap_string b = preprocess_file(argv[1], includepaths, verbose);
+	heap_string b = preprocess_file(argv[1], includepaths, verbose, NULL, NULL);
     if(b)
     printf("%s\n",b);
     if(b)

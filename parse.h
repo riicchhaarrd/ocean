@@ -28,4 +28,8 @@ void parse_initialize( struct parse_context* ctx );
 int parse_string( struct parse_context* ctx, const char* str, int );
 void parse_cleanup( struct parse_context* ctx );
 struct token* parse_advance( struct parse_context* ctx );
+static void parse_reset( struct parse_context* ctx )
+{
+	ctx->token_index = 0;
+}
 #endif

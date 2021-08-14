@@ -66,9 +66,9 @@ int main( int argc, char** argv )
     int is_exe = strstr(dst, ".exe") != NULL;
     
     /* pre.c */
-	heap_string preprocess_file( const char* filename, const char** includepaths, int verbose );
+	heap_string preprocess_file( const char* filename, const char** includepaths, int verbose, struct hash_map *defines, struct hash_map **defines_out);
 	const char* includepaths[] = { "examples/include/", NULL };
-	heap_string data = preprocess_file( src, includepaths, 0 );
+	heap_string data = preprocess_file( src, includepaths, 0, NULL, NULL );
 
 	if ( !data )
     {
