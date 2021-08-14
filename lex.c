@@ -379,39 +379,42 @@ retry:
 	    {
 		tk->type = TK_IDENT;
 		heap_string s = next_match(lex, match_test_ident);
-		//check whether this ident is a special ident
-		if(!strcmp(s, "for"))
-		    tk->type = TK_FOR;
-		else if(!strcmp(s, "while"))
-		    tk->type = TK_WHILE;
-		else if(!strcmp(s, "do"))
-		    tk->type = TK_DO;
-		else if(!strcmp(s, "if"))
-		    tk->type = TK_IF;
-        else if(!strcmp(s, "return"))
-            tk->type = TK_RETURN;
-        else if(!strcmp(s, "break"))
-            tk->type = TK_BREAK;
-        else if(!strcmp(s, "char"))
-            tk->type = TK_T_CHAR;
-        else if(!strcmp(s, "short"))
-            tk->type = TK_T_SHORT;
-        else if(!strcmp(s, "int"))
-            tk->type = TK_T_INT;
-        else if(!strcmp(s, "float"))
-            tk->type = TK_T_FLOAT;
-        else if(!strcmp(s, "double"))
-            tk->type = TK_T_DOUBLE;
-        else if(!strcmp(s, "void"))
-            tk->type = TK_T_VOID;
-        else if(!strcmp(s, "const"))
-            tk->type = TK_CONST;
-        else if(!strcmp(s, "unsigned"))
-            tk->type = TK_T_UNSIGNED;
-        else if(!strcmp(s, "sizeof"))
-            tk->type = TK_SIZEOF;
-        else if(!strcmp(s, "__emit"))
-            tk->type = TK_EMIT;
+        if((lex->flags & LEX_FL_FORCE_IDENT) != LEX_FL_FORCE_IDENT)
+		{
+			// check whether this ident is a special ident
+			if ( !strcmp( s, "for" ) )
+				tk->type = TK_FOR;
+			else if ( !strcmp( s, "while" ) )
+				tk->type = TK_WHILE;
+			else if ( !strcmp( s, "do" ) )
+				tk->type = TK_DO;
+			else if ( !strcmp( s, "if" ) )
+				tk->type = TK_IF;
+			else if ( !strcmp( s, "return" ) )
+				tk->type = TK_RETURN;
+			else if ( !strcmp( s, "break" ) )
+				tk->type = TK_BREAK;
+			else if ( !strcmp( s, "char" ) )
+				tk->type = TK_T_CHAR;
+			else if ( !strcmp( s, "short" ) )
+				tk->type = TK_T_SHORT;
+			else if ( !strcmp( s, "int" ) )
+				tk->type = TK_T_INT;
+			else if ( !strcmp( s, "float" ) )
+				tk->type = TK_T_FLOAT;
+			else if ( !strcmp( s, "double" ) )
+				tk->type = TK_T_DOUBLE;
+			else if ( !strcmp( s, "void" ) )
+				tk->type = TK_T_VOID;
+			else if ( !strcmp( s, "const" ) )
+				tk->type = TK_CONST;
+			else if ( !strcmp( s, "unsigned" ) )
+				tk->type = TK_T_UNSIGNED;
+			else if ( !strcmp( s, "sizeof" ) )
+				tk->type = TK_SIZEOF;
+			else if ( !strcmp( s, "__emit" ) )
+				tk->type = TK_EMIT;
+		}
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);
 	    } else
@@ -448,14 +451,13 @@ void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *n
 
 	for ( int i = 0; i < len; ++i )
 	{
-        if(end)
-            end->end = lex.pos;
         tk.start = lex.pos;
 		int ret = token( &lex, &tk );
 		if ( ret )
 		{
 			break;
 		}
+        tk.end = lex.pos;
 		// if(tk.type == TK_IDENT)
 		//printf("token = %s (%s)\n", token_type_to_string(tk.type), tk.string);
 		end = linked_list_prepend( lex.tokens, tk );

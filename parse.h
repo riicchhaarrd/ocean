@@ -16,7 +16,9 @@ enum LEX_FLAG
 {
     LEX_FL_NONE = 0,
     LEX_FL_NEWLINE_TOKEN = 1,
-    LEX_FL_BACKSLASH_TOKEN = 2
+    LEX_FL_BACKSLASH_TOKEN = 2,
+    LEX_FL_FORCE_IDENT = 4
+    //LEX_FL_PREPROCESSOR_MODE = 4 //maybe
 };
 
 void parse(const char*, struct token**, int*, int);
