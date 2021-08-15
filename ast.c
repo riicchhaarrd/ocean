@@ -192,17 +192,19 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
         
         int post_qualifiers = TQ_NONE;
         type_qualifiers(ctx, &post_qualifiers);
-        int is_pointer = !ast_accept(ctx, '*');
+        int np = 0;
+        while(!ast_accept(ctx, '*'))
+            ++np;
 
 		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
 		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
 		primitive_type_node->primitive_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
         *data_type_node = primitive_type_node;
 
-        if(is_pointer)
+        for(int i = 0; i < np; ++i)
 		{
 			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
-			pointer_type_node->pointer_data_type_data.data_type = primitive_type_node;
+			pointer_type_node->pointer_data_type_data.data_type = *data_type_node;
             *data_type_node = pointer_type_node;
 		}
 	}

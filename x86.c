@@ -86,21 +86,30 @@ static int primitive_data_type_size(int type)
     return 0;
 }
 
-static int data_type_size(struct ast_node *n)
+static int data_type_size(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
 	{
-    case AST_POINTER_DATA_TYPE:
+    case AST_DEREFERENCE:
+        return data_type_size(ctx, n->dereference_data.value);
+    case AST_IDENTIFIER:
+	{
+		struct variable* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
+		assert( var );
+        return data_type_size(ctx, var->data_type_node);
+	}
+	break;
+	case AST_POINTER_DATA_TYPE:
         return IMM32;
     case AST_PRIMITIVE_DATA_TYPE:
         return primitive_data_type_size(n->primitive_data_type_data.primitive_type);
     case AST_ARRAY_DATA_TYPE:
 	{
 		assert( n->array_data_type_data.array_size > 0 );
-        
+
 		if ( n->array_data_type_data.data_type->type == AST_ARRAY_DATA_TYPE )
-			return data_type_size( n->array_data_type_data.data_type ) * n->array_data_type_data.array_size;
-        else if(n->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE)
+			return data_type_size( ctx, n->array_data_type_data.data_type ) * n->array_data_type_data.array_size;
+		else if ( n->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE )
 		{
             //printf("array size = %d, primitive_type_size = %d\n", n->array_data_type_data.array_size, primitive_data_type_size(  n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ));
 			return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ) *
@@ -113,7 +122,7 @@ static int data_type_size(struct ast_node *n)
 		}
 	} break;
 	}
-	perror( "unhandled data type node, can't get size\n" );
+	debug_printf( "unhandled data type node '%s', can't get size\n", AST_NODE_TYPE_to_string( n->type ) );
 	return 0;
 }
 
@@ -289,7 +298,7 @@ static int function_variable_declaration_stack_size( struct compile_context* ctx
 	{
 		struct ast_node* decl = n->func_decl_data.declarations[i];
 		assert( decl->type == AST_VARIABLE_DECL );
-		int ds = data_type_size( decl->variable_decl_data.data_type );
+		int ds = data_type_size( ctx, decl->variable_decl_data.data_type );
 		assert( ds > 0 );
 		total += ds;
 	}
@@ -337,7 +346,9 @@ static intptr_t register_value(struct compile_context *ctx, enum REGISTER reg)
 
 static struct ast_node *identifier_data_node(struct compile_context *ctx, struct ast_node *n)
 {
-    assert(n->type == AST_IDENTIFIER);
+    if(n->type != AST_IDENTIFIER)
+        debug_printf("expected identifier, got '%s'\n", AST_NODE_TYPE_to_string(n->type));
+	assert(n->type == AST_IDENTIFIER);
     struct variable *var = hash_map_find(ctx->function->variables, n->identifier_data.name);
     assert(var);
     return var->data_type_node;
@@ -366,9 +377,13 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
         return IMM32;
 
 	case AST_POINTER_DATA_TYPE:
-        if(ptr)
-            return IMM32;
-		return primitive_data_type_size( n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type );
+		if ( ptr )
+			return IMM32;
+		if ( n->pointer_data_type_data.data_type->type == AST_POINTER_DATA_TYPE )
+			return data_type_operand_size( ctx, n->pointer_data_type_data.data_type, 1 );
+		else
+			return primitive_data_type_size(
+				n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type );
 
 	case AST_ARRAY_DATA_TYPE:
 		return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type );
@@ -907,14 +922,16 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         case AST_PRIMITIVE_DATA_TYPE:
         case AST_POINTER_DATA_TYPE:
         case AST_ARRAY_DATA_TYPE:
-            sz = data_type_size(n->sizeof_data.subject);
-            break;
-        case AST_IDENTIFIER:
+		case AST_DEREFERENCE:
+			sz = data_type_size( ctx, n->sizeof_data.subject );
+			break;
+		case AST_IDENTIFIER:
 		{
             struct variable *var = hash_map_find(ctx->function->variables, n->sizeof_data.subject->identifier_data.name);
-            assert(var);
-            sz = data_type_size(var->data_type_node);
-		} break;
+			assert( var );
+			sz = data_type_size( ctx, var->data_type_node );
+		}
+		break;
 		default:
             debug_printf("unhandled sizeof '%s'\n", AST_NODE_TYPE_to_string(n->sizeof_data.subject->type));
             break;
@@ -1263,7 +1280,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
             struct ast_node *parm = n->func_decl_data.parameters[i];
             assert(parm->type == AST_VARIABLE_DECL);
             
-            offset += data_type_size(parm->variable_decl_data.data_type);
+            offset += data_type_size(ctx, parm->variable_decl_data.data_type);
             
             struct variable tv = {
                     .offset = offset,
@@ -1468,7 +1485,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         assert(id->type == AST_IDENTIFIER);
         const char *variable_name = id->identifier_data.name;
         
-        int variable_size = data_type_size(data_type_node);
+        int variable_size = data_type_size(ctx, data_type_node);
         assert(variable_size > 0);
         ctx->function->localvariablesize += variable_size;
 
