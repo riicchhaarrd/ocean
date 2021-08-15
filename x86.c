@@ -221,26 +221,24 @@ static int function_call_ident(struct compile_context *ctx, const char *function
         int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
         assert(numargs > 0);
 
-        for(int i = numargs - 1; i < 5; ++i)
+        for(int i = 0; i < 6 - numargs; ++i)
 		{
 			xor( ctx, EAX, EAX );
 			push( ctx, EAX );
 		}
-		for(int i = 1; i < numargs; ++i)
+		for(int i = 0; i < numargs; ++i)
 		{
-			rvalue( ctx, EAX, args[i] );
+			rvalue( ctx, EAX, args[numargs-i-1] );
 			push( ctx, EAX );
 		}
         
         //TODO: FIXME arg5 (%ebp) is on the stack //ebp
-        
+        pop(ctx, EAX);
         pop(ctx, EBX);
         pop(ctx, ECX);
         pop(ctx, EDX);
         pop(ctx, ESI);
         pop(ctx, EDI);
-
-        rvalue(ctx, EAX, args[0]);
 
         /*
         for(int i = 0; i < numargs; ++i)
@@ -270,7 +268,7 @@ static int function_call_ident(struct compile_context *ctx, const char *function
 
 	for(int i = 0; i < numargs; ++i)
     {
-		process( ctx, args[i] );
+		process( ctx, args[numargs-i-1] );
         //push eax
         db(ctx, 0x50);
     }
