@@ -1107,6 +1107,18 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 	}
 	break;
 
+    case AST_SEQ_EXPR:
+	{
+        struct ast_node *expr = n->seq_expr_data.expr[0];
+        rvalue(ctx, reg, expr);
+        push(ctx, EAX);
+        for(int i = 1; i < n->seq_expr_data.numexpr; ++i)
+		{
+            rvalue(ctx, reg, n->seq_expr_data.expr[i]);
+		}
+		pop(ctx, EAX);
+	} break;
+
 	default:
         debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
         return 1;
@@ -1309,7 +1321,23 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         });
     } break;
 
-    case AST_PROGRAM:
+    case AST_EMPTY:
+        break;
+
+	case AST_SEQ_EXPR:
+	{
+		struct ast_node* expr = n->seq_expr_data.expr[0];
+		process( ctx, expr );
+		push( ctx, EAX );
+		for ( int i = 1; i < n->seq_expr_data.numexpr; ++i )
+		{
+			process( ctx, n->seq_expr_data.expr[i] );
+		}
+		pop( ctx, EAX );
+	}
+	break;
+
+	case AST_PROGRAM:
     {
 		linked_list_reversed_foreach( n->program_data.body, struct ast_node**, it, {
                 process(ctx, (*it));

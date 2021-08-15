@@ -235,6 +235,12 @@ struct ast_break_stmt
     //keep track of which loop node we're in maybe
 };
 
+struct ast_seq_expr
+{
+    struct ast_node *expr[16]; //TODO: increase N
+    int numexpr;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -269,6 +275,7 @@ struct ast_node
         struct ast_sizeof sizeof_data;
         struct ast_ternary_expr ternary_expr_data;
         struct ast_break_stmt break_stmt_data;
+        struct ast_seq_expr seq_expr_data;
     };
 };
 

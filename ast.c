@@ -164,6 +164,8 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
     return n;
 }
 
+void expression_sequence(struct ast_context *ctx, struct ast_node **node);
+
 static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
 {
     *qualifiers = TQ_NONE;
@@ -461,9 +463,22 @@ static void regular_assignment(struct ast_context *ctx, struct ast_node **node)
 	}
 }
 
-static void expression(struct ast_context *ctx, struct ast_node **node)
+static void expression( struct ast_context* ctx, struct ast_node** node )
 {
-    return regular_assignment(ctx, node);
+	regular_assignment( ctx, node );
+}
+
+void expression_sequence(struct ast_context *ctx, struct ast_node **node)
+{
+	struct ast_node* seq = push_node( ctx, AST_SEQ_EXPR );
+	seq->seq_expr_data.numexpr = 0;
+	struct ast_node* n;
+	do
+	{
+		regular_assignment( ctx, &n );
+		seq->seq_expr_data.expr[seq->seq_expr_data.numexpr++] = n;
+	} while ( !ast_accept( ctx, ',' ) );
+	*node = seq->seq_expr_data.numexpr == 1 ? n : seq;
 }
 
 static void print_tabs(int n)
@@ -493,7 +508,15 @@ static void print_ast(struct ast_node *n, int depth)
     print_tabs(depth);
     switch(n->type)
     {
-    case AST_BLOCK_STMT:
+	case AST_SEQ_EXPR:
+	{
+		for ( int i = 0; i < n->seq_expr_data.numexpr; ++i )
+		{
+			print_ast( n->seq_expr_data.expr[i], depth + 1 );
+		}
+	}
+	break;
+	case AST_BLOCK_STMT:
         printf("block statement\n");
         //printf("{\n");
 		linked_list_reversed_foreach( n->block_stmt_data.body, struct ast_node**, it, { print_ast( *it, depth + 1 ); } );
@@ -728,9 +751,29 @@ static void variable_declaration( struct ast_context* ctx, struct ast_node **out
 static struct ast_node *init_statement(struct ast_context *ctx)
 {
 	struct ast_node* decl_node;
-	variable_declaration( ctx, &decl_node );
-    if(!decl_node)
-        regular_assignment(ctx, &decl_node);
+	variable_declaration( ctx, &decl_node, 0 );
+	if ( !decl_node )
+		regular_assignment( ctx, &decl_node );
+	if ( !decl_node )
+		return NULL;
+	// TODO: FIXME this is not correct in this case
+	/*
+	  for(int i = 0, j = 1; i < 10; ++i);
+	  //gives error, unless you specify int j; before
+	 */
+	if ( !ast_accept( ctx, ',' ) )
+	{
+		struct ast_node* seq = push_node( ctx, AST_SEQ_EXPR );
+		seq->seq_expr_data.numexpr = 0;
+		seq->seq_expr_data.expr[seq->seq_expr_data.numexpr++] = decl_node;
+		do
+		{
+            struct ast_node *n;
+			expression( ctx, &n );
+			seq->seq_expr_data.expr[seq->seq_expr_data.numexpr++] = n;
+		} while(!ast_accept(ctx, ','));
+        return seq;
+	}
 	return decl_node;
 }
 
@@ -835,7 +878,7 @@ static struct ast_node* for_statement( struct ast_context* ctx )
 	}
 	if ( ast_accept( ctx, ')' ) )
 	{
-		expression( ctx, &update );
+		expression_sequence( ctx, &update );
 		ast_assert( ctx, update, "invalid update expression in for statement block" );
 		ast_expect( ctx, ')', "expected ) after for" );
 	}
