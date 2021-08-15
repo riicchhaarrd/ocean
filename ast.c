@@ -811,6 +811,10 @@ static struct ast_node* if_statement( struct ast_context* ctx )
 	expression( ctx, &if_node->if_stmt_data.test );
 	ast_expect( ctx, ')', "expected ) after if" );
 	statement( ctx, &if_node->if_stmt_data.consequent );
+    if(!ast_accept(ctx, TK_ELSE))
+	{
+		statement( ctx, &if_node->if_stmt_data.alternative );
+	}
 	return if_node;
 }
 

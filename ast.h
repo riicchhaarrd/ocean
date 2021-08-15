@@ -111,6 +111,7 @@ struct ast_if_stmt
 {
     struct ast_node *test;
     struct ast_node *consequent;
+    struct ast_node *alternative;
 };
 
 struct ast_for_stmt

@@ -1199,38 +1199,34 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         
     case AST_IF_STMT:
     {
-        struct ast_node *test = n->if_stmt_data.test;
-        process(ctx, test);
-
-        //i think we should have our test value in eax now, just test whether it's not zero
-
-        //cmp eax,0
-        db(ctx, 0x83);
-        db(ctx, 0xf8);
-        db(ctx, 0x00);
-
-        //let's assume the jmp distance is small enough so we can relative jump
-        
-        //je <relative_offset>
-		int tmp = instruction_position(ctx);
-        db(ctx, 0x74);
-        db(ctx, 0x0); //placeholder
-        
-        //db(ctx, 0xcc); //int3
-        
         struct ast_node *consequent = n->if_stmt_data.consequent;
+        struct ast_node *condition = n->if_stmt_data.test;
+        struct ast_node *alternative = n->if_stmt_data.alternative;
+
+        process(ctx, condition);
+		// test eax,eax
+		db( ctx, 0x85 );
+		db( ctx, 0xc0 );
+
+		// jz rel32
+		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
+		db( ctx, 0x0f );
+		db( ctx, 0x84 );
+		dd( ctx, 0x0 ); // placeholder
+        
         process(ctx, consequent);
         
-        int off = instruction_position(ctx) - tmp;
-        assert(off > 0);
-        int op = (0xfe + off) % 256;
-        set8(ctx, tmp + 1, op & 0xff);
-        //TODO: fix if the distance is more, use set32 and different opcode
-        
-        //db(ctx, 0xcc); //int3
-    } break;
+		int jmp_pos = instruction_position( ctx );
+		db( ctx, 0xe9 );
+		dd( ctx, 0x0 ); // placeholder
+		set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
+		if ( alternative ) //should work
+			process( ctx, alternative );
+		set32( ctx, jmp_pos + 1, instruction_position( ctx ) - jmp_pos - 5 );
+	}
+	break;
 
-    case AST_RETURN_STMT:
+	case AST_RETURN_STMT:
     {
         struct ast_node *expr = n->return_stmt_data.argument;
         process(ctx, expr);
