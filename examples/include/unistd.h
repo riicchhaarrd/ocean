@@ -1,9 +1,14 @@
+#ifndef UNISTD_H
+#define UNISTD_H
+
 int read(int fd, char *buf, int len)
 {
-    return syscall(3, fd, buf, len);
+    return syscall(SYS_read, fd, buf, len);
 }
 
 void write(int fd, const char *buf, int len)
 {
-    syscall(4, fd, buf, len);
+    syscall(SYS_write, fd, buf, len);
 }
+
+#endif

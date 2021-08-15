@@ -1,9 +1,11 @@
+#ifndef STRING_H
+#define STRING_H
+
 int strlen(const char *s)
 {
-    int i = 0;
-    while(s[i])
-    {
-        i+=1;
-    }    
-    return i;
+    int len = 0;
+    while(*s++) ++len;
+    return len;
 }
+
+#endif

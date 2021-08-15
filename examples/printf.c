@@ -2,6 +2,6 @@
 
 int main()
 {
-	printf( "hello, world!\n" );
+    printf("test %x %s\n", 123, "string");
     return 0;
 }

@@ -1,6 +1,11 @@
+#ifndef STDLIB_H
+#define STDLIB_H
+
+#include <sys/syscall.h>
+
 void exit(int code)
 {
-    syscall(1, code);
+    syscall(SYS_exit, code);
 }
 
 int atoi(const char *_str)
@@ -24,3 +29,4 @@ int atoi(const char *_str)
         return -total;
 	return total;
 }
+#endif
