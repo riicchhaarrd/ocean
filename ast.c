@@ -285,7 +285,10 @@ static struct ast_node *sizeof_factor(struct ast_context *ctx)
 static struct ast_node *address_of_factor(struct ast_context *ctx)
 {
 	struct ast_node* n = push_node( ctx, AST_ADDRESS_OF );
-	expression( ctx, &n->address_of_data.value );
+    //TODO: FIXME proper precedence, see order of evaluation
+    //https://en.cppreference.com/w/c/language/operator_precedence
+	void array_subscripting( struct ast_context * ctx, struct ast_node * *node );
+	array_subscripting( ctx, &n->address_of_data.value );
 	return n;
 }
 
@@ -332,7 +335,7 @@ static void postfix(struct ast_context *ctx, struct ast_node **node)
 		*node = unary_expr( ctx, ast_token( ctx )->type, 0, *node );
 }
 
-static void array_subscripting(struct ast_context *ctx, struct ast_node **node)
+void array_subscripting(struct ast_context *ctx, struct ast_node **node)
 {
     postfix(ctx, node);
     while(!ast_accept(ctx, '['))
