@@ -171,10 +171,13 @@ retry:
             tk->type = '\n';
 			return 0;
 		}
-	case ' ':
 	case '\t':
-	case '\r':
 		goto retry;
+        
+	case '\r':
+	case ' ':
+        ++tk->character_start;
+        goto retry;
 
 	case '<':
         if(!next_check(lex, '<'))
@@ -454,6 +457,7 @@ void parse(const char *data, struct token **tokens_out/*must be free'd*/, int *n
 	for ( int i = 0; i < len; ++i )
 	{
         tk.start = lex.pos;
+        tk.character_start = lex.pos;
 		int ret = token( &lex, &tk );
 		if ( ret )
 		{

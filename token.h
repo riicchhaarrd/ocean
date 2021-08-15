@@ -136,6 +136,7 @@ struct token
     };
     int lineno;
     int start, end;
+    int character_start; //start can include whitespace from the buffer, character_start is the position where the first non whitespace character begins
 };
 
 
