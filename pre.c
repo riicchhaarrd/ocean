@@ -341,6 +341,8 @@ static int handle_token( struct pre_context *ctx, heap_string* preprocessed, str
 				// printf("tk type = %s (%s)\n", token_type_to_string(t->type), t->string);
 				parse_advance( &ctx->parse_context );
 			}
+            if(!d.body)
+                d.body = heap_string_new("");
 			hash_map_insert( ctx->identifiers, ident, d );
 			// printf("defining %s, func = %d\n", ident, d.function);
 		}
