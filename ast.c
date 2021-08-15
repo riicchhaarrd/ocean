@@ -543,7 +543,8 @@ static void print_ast(struct ast_node *n, int depth)
 
     case AST_POINTER_DATA_TYPE:
 	{
-        printf("pointer data type '%s'\n", data_type_strings[n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type]);
+        printf("pointer data type\n");
+        print_ast(n->pointer_data_type_data.data_type, depth + 1);
 	} break;
 
 	case AST_FUNCTION_CALL_EXPR:
@@ -647,6 +648,18 @@ static void print_ast(struct ast_node *n, int depth)
 			printf( "body:\n" );
 			print_ast( n->for_stmt_data.body, depth + 1 );
 		}
+	} break;
+
+    case AST_SIZEOF:
+	{
+        printf("sizeof\n");
+        print_ast(n->sizeof_data.subject, depth + 1);
+	} break;
+
+    case AST_ADDRESS_OF:
+	{
+        printf("address of\n");
+        print_ast(n->address_of_data.value, depth + 1);
 	} break;
 
 	default:
