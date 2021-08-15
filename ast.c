@@ -695,10 +695,10 @@ static void print_ast(struct ast_node *n, int depth)
     reset_print_color();
 }
 
-static void variable_declaration( struct ast_context* ctx, struct ast_node **out_decl_node )
+static void variable_declaration( struct ast_context* ctx, struct ast_node** out_decl_node, int is_param )
 {
-    struct ast_node *type_decl = NULL;
-    int td = type_declaration(ctx, &type_decl);
+	struct ast_node* type_decl = NULL;
+	int td = type_declaration(ctx, &type_decl);
     ast_assert(ctx, !td, "error in type declaration");
 	if(type_decl)
     {
@@ -706,8 +706,9 @@ static void variable_declaration( struct ast_context* ctx, struct ast_node **out
 		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
 
 		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
-        assert(ctx->function);
-        ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
+		assert( ctx->function );
+		if ( !is_param )
+			ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
 		decl_node->variable_decl_data.id = id;
 		decl_node->variable_decl_data.data_type = type_decl;
         decl_node->variable_decl_data.initializer_value = NULL;
@@ -986,8 +987,8 @@ static struct ast_node *program(struct ast_context *ctx)
 				decl->func_decl_data.variadic = 1;
 				break;
 			}
-			variable_declaration( ctx, &parm_decl );
-            
+			variable_declaration( ctx, &parm_decl, 1 );
+
 			if ( parm_decl == NULL )
 				break;
 
