@@ -270,10 +270,9 @@ static struct ast_node *sizeof_factor(struct ast_context *ctx)
 {
 	ast_expect( ctx, '(', "sizeof expecting (" );
 	struct ast_node* so_node = push_node( ctx, AST_SIZEOF );
-	struct ast_node* subject = NULL;
-	int td = type_declaration( ctx, &subject );
+	int td = type_declaration( ctx, &so_node->sizeof_data.subject );
 	ast_assert( ctx, !td, "error in type declaration" );
-	if ( !subject )
+	if ( !so_node->sizeof_data.subject )
 		expression( ctx, &so_node->sizeof_data.subject );
 	ast_expect( ctx, ')', "sizeof expecting )" );
 	return so_node;
