@@ -157,11 +157,6 @@ struct ast_return_stmt
     struct ast_node *argument;
 };
 
-struct ast_address_of
-{
-    struct ast_node *value;
-};
-
 struct ast_member_expr
 {
     struct ast_node *object;
@@ -206,11 +201,6 @@ struct ast_variable_decl
     struct ast_node *id;
     struct ast_node *data_type;
     struct ast_node *initializer_value;
-};
-
-struct ast_dereference
-{
-    struct ast_node *value;
 };
 
 struct ast_emit
@@ -265,10 +255,8 @@ struct ast_node
         struct ast_function_decl func_decl_data;
         struct ast_program program_data;
         struct ast_return_stmt return_stmt_data;
-        struct ast_address_of address_of_data;
         struct ast_member_expr member_expr_data;
         struct ast_variable_decl variable_decl_data;
-        struct ast_dereference dereference_data;
         struct ast_primitive_data_type primitive_data_type_data;
         struct ast_array_data_type array_data_type_data;
         struct ast_pointer_data_type pointer_data_type_data;
@@ -279,5 +267,10 @@ struct ast_node
         struct ast_seq_expr seq_expr_data;
     };
 };
+
+static void ast_print_node_type(const char *key, struct ast_node *n)
+{
+    printf("node type: %s -> %s\n", key, AST_NODE_TYPE_to_string(n->type));
+}
 
 #endif

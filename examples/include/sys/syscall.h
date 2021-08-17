@@ -18,5 +18,7 @@
 #define SYS_chmod 15
 #define SYS_lchown 16
 
+#define SYS_brk 0x2d
+
 //TODO: add more syscalls nr
 #endif

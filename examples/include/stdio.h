@@ -50,6 +50,9 @@ void print_hex(int d)
 
 void print_decimal(int d)
 {
+    int neg = d < 0;
+    if(neg)
+        d = -d;
     char buf[32];
     int i = 0;
     buf[31] = 0;
@@ -60,7 +63,22 @@ void print_decimal(int d)
         d /= 10;
         i += 1;
 	} while(d > 0);
+    buf[sizeof(buf)-i-2]='-';
+    ++i;
     print(&buf[sizeof(buf) - i - 1]);
+}
+
+void print_bits(int d, int little_endian)
+{
+    char buf[33];
+    for(int i = 0; i < 32; ++i)
+	{
+		int b = d & ( 1 << i );
+		buf[little_endian ? 32-i-1 : i] = b ? '1' : '0';
+	}
+	buf[32] = 0;
+    print(buf);
+	//write( STDOUT_FILENO, buf, sizeof(buf) );
 }
 
 int printf(const char *fmt, ...)
@@ -75,20 +93,30 @@ int printf(const char *fmt, ...)
 			int ch = fmt[i + 1];
 			if(ch == 'd')
 			{
-				int arg = va_arg( q, int );
-				print_decimal( arg );
+				int argd = va_arg( q, int );
+				print_decimal( argd );
 			}
             //TODO: add elseif and switch statement
             if(ch == 's')
 			{
-                const char *arg = va_arg(q, int); //TODO: fix preprocessor handle const char*
-                print(arg);
+                const char *args = va_arg(q, int); //TODO: fix preprocessor handle const char*
+                print(args);
 			}
 
             if(ch == 'x')
 			{
-				int arg = va_arg( q, int );
-                print_hex(arg);
+				int argx = va_arg( q, int );
+                print_hex(argx);
+			}
+			if ( ch == 'b' )
+			{
+				int argb = va_arg( q, int );
+				print_bits( argb , 1);
+			}
+			if ( ch == 'B' )
+			{
+				int argb = va_arg( q, int );
+				print_bits( argb , 0);
 			}
 			++i;
 		}

@@ -4,7 +4,7 @@
 int strlen(const char *s)
 {
     int len = 0;
-    while(*s++) ++len;
+    while(*s++) len++;
     return len;
 }
 

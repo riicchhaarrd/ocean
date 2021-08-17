@@ -90,8 +90,6 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
 	{
-    case AST_DEREFERENCE:
-        return data_type_size(ctx, n->dereference_data.value);
     case AST_IDENTIFIER:
 	{
 		struct variable* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
@@ -363,8 +361,6 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	case AST_PRIMITIVE_DATA_TYPE:
 		return primitive_data_type_size( n->primitive_data_type_data.primitive_type );
         
-	case AST_DEREFERENCE:
-        return data_type_operand_size(ctx, n->dereference_data.value, 0);
 #ifndef MIN
 #define MIN( a, b ) ( ( a ) > ( b ) ? ( b ) : ( a ) )
 #endif
@@ -402,7 +398,7 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 }
 
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
-void lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+int lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
 static void ast_handle_assignment_expression( struct compile_context* ctx, struct ast_node* n )
 {
     push(ctx, EBX);
@@ -557,6 +553,13 @@ static void ast_handle_assignment_expression( struct compile_context* ctx, struc
 
 static void load_operand(struct compile_context *ctx, struct ast_node *n)
 {
+    if(ctx->flags & CCF_DEC_EBX)
+	{
+        //dec eax
+        db(ctx, 0x4b);
+        ctx->flags &= ~CCF_DEC_EBX;
+	}
+    
 	int os = data_type_operand_size( ctx, n, 0 );
 	switch ( os )
 	{
@@ -580,6 +583,7 @@ static void load_operand(struct compile_context *ctx, struct ast_node *n)
 
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 {
+    //printf("rvalue node '%s'\n", AST_NODE_TYPE_to_string(n->type));
     switch(n->type)
 	{
 	case AST_LITERAL:
@@ -600,8 +604,9 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 		}
 		break;
 
-    case AST_IDENTIFIER:
+	case AST_IDENTIFIER:
 	{
+		// TODO: remove this and move to lvalue, then rvalue will call lvalue then load the identifier into EAX
 		const char* variable_name = n->identifier_data.name;
 		struct variable* var = hash_map_find( ctx->function->variables, variable_name );
         if(!var)
@@ -641,9 +646,10 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 		}
 		break;
 		}
-	} break;
-    
-    case AST_TERNARY_EXPR:
+	}
+	break;
+
+	case AST_TERNARY_EXPR:
 	{
         struct ast_node *consequent = n->ternary_expr_data.consequent;
         struct ast_node *condition = n->ternary_expr_data.condition;
@@ -920,7 +926,6 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         case AST_PRIMITIVE_DATA_TYPE:
         case AST_POINTER_DATA_TYPE:
         case AST_ARRAY_DATA_TYPE:
-		case AST_DEREFERENCE:
 			sz = data_type_size( ctx, n->sizeof_data.subject );
 			break;
 		case AST_IDENTIFIER:
@@ -943,15 +948,26 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 
     case AST_MEMBER_EXPR:
     {
+        push(ctx, EBX);
         struct ast_node *object = n->member_expr_data.object;
         struct ast_node *property = n->member_expr_data.property;
-        rvalue(ctx, EBX, object);
-        
-        struct ast_node *dn = identifier_data_node(ctx, object);
+		struct ast_node *dn = identifier_data_node(ctx, object);
+        //ast_print_node_type("object", dn);
+		if ( dn->type == AST_POINTER_DATA_TYPE )
+        {
+			rvalue( ctx, EAX, object );
+
+			// mov ebx, eax
+			db( ctx, 0x89 );
+			db( ctx, 0xc3 );
+		}
+		else
+			lvalue( ctx, EBX, object );
         
         rvalue( ctx, reg, n->member_expr_data.property );
         add( ctx, EBX, reg );
         load_operand(ctx, dn);
+        pop(ctx, EBX);
 	} break;
     
     case AST_UNARY_EXPR:
@@ -997,57 +1013,17 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         {
             switch(n->unary_expr_data.operator)
 			{
-			case TK_MINUS_MINUS:
-			{
-				push(ctx,EBX);
-                if(!n->unary_expr_data.prefix)
+            case '&':
+				lvalue( ctx, EBX, n->unary_expr_data.argument );
+				if ( reg == EAX )
 				{
-					rvalue( ctx, EAX, arg );
-					push( ctx, EAX );
-					lvalue( ctx, EBX, arg );
-					// dec [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x0b );
-					pop( ctx, EAX );
+					// mov eax,ebx
+					db( ctx, 0x89 );
+					db( ctx, 0xd8 );
 				}
-				else
-				{
-					lvalue( ctx, EBX, arg );
-					// dec [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x0b );
-					rvalue( ctx, EAX, arg );
-				}
-				pop(ctx,EBX);
-			}
-			break;
+				break;
 
-			case TK_PLUS_PLUS:
-			{
-                push(ctx,EBX);
-                if(!n->unary_expr_data.prefix)
-				{
-					rvalue( ctx, EAX, arg );
-					push( ctx, EAX );
-					lvalue( ctx, EBX, arg );
-					// inc [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x03 );
-					pop( ctx, EAX );
-				}
-				else
-				{
-					lvalue( ctx, EBX, arg );
-					// inc [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x03 );
-					rvalue( ctx, EAX, arg );
-				}
-				pop(ctx,EBX);
-			}
-			break;
-            
-            case '-':
+			case '-':
                 rvalue(ctx, EAX, arg);
                 //neg eax
                 db(ctx, 0xf7);
@@ -1056,21 +1032,40 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
             case '!':
             case '~':
                 rvalue(ctx, EAX, arg);
-                //not eax
-                db(ctx, 0xf7);
-                db(ctx, 0xd0);
                 if(n->unary_expr_data.operator=='!')
                 {
-                    //and eax,1
-					db(ctx, 0x83);
-					db(ctx, 0xe0);
-					db(ctx, 0x01);
-                }
-                break;
-                
-            default:
-                printf("unhandled unary expression %c\n", n->unary_expr_data.operator);
-                break;
+                    //cmp eax, 0
+                    db(ctx, 0x83);
+                    db(ctx, 0xf8);
+                    db(ctx, 0x00);
+                    
+                    //sete al
+                    db(ctx, 0x0f);
+                    db(ctx, 0x94);
+                    db(ctx, 0xc0);
+
+                    //movzx eax, al
+                    db(ctx, 0x0f);
+                    db(ctx, 0xb6);
+                    db(ctx, 0xc0);
+                } else
+				{
+					// not eax
+					db( ctx, 0xf7 );
+					db( ctx, 0xd0 );
+				}
+				break;
+
+			default:
+				push( ctx, EBX );
+				if ( lvalue( ctx, EBX, n ) )
+				{
+					debug_printf( "unhandled unary expression '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
+					abort();
+				}
+                load_operand(ctx, n);
+				pop( ctx, EBX );
+				break;
 			}
 		}
     } break;
@@ -1096,32 +1091,6 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 	}
 	break;
     
-    case AST_ADDRESS_OF:
-    {
-        lvalue(ctx, EBX, n->address_of_data.value);
-        if(reg == EAX)
-		{
-            //mov eax,ebx
-            db(ctx,0x89);
-            db(ctx,0xd8);
-		}
-		//load_variable(ctx, EAX, 1, n->address_of_data.value, 0);
-    } break;
-
-	case AST_DEREFERENCE:
-	{
-		struct ast_node* value = n->dereference_data.value;
-        assert(reg == EAX);
-		rvalue( ctx, reg, value );
-        push(ctx,EBX);
-        //mov ebx,eax
-        db(ctx,0x89);
-        db(ctx,0xc3);
-        load_operand(ctx, value);
-        pop(ctx,EBX);
-	}
-	break;
-
     case AST_SEQ_EXPR:
 	{
         struct ast_node *expr = n->seq_expr_data.expr[0];
@@ -1135,14 +1104,21 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 	} break;
 
 	default:
-        debug_printf("unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
-        return 1;
+        push(ctx, EBX);
+        if(lvalue(ctx, EBX, n))
+		{
+			debug_printf( "unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
+			exit( -1 );
+		}
+        load_operand(ctx, n);
+        pop(ctx, EBX);
+		return 1;
 	}
     return 0;
 }
 
 // locator value, can be local variable, global variable, array offset or any other valid lvalue
-void lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
+int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 {
 	switch ( n->type )
 	{
@@ -1165,22 +1141,54 @@ void lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n 
 		// TODO: FIXME for multidimensional arrays
 		struct ast_node* object = n->member_expr_data.object;
         push(ctx, EAX);
-		lvalue( ctx, reg, object );
+		struct ast_node* dn = identifier_data_node( ctx, object );
+		if ( dn->type == AST_POINTER_DATA_TYPE )
+		{
+			rvalue( ctx, reg, object );
+		}
+		else
+			lvalue( ctx, reg, object );
 		rvalue( ctx, EAX, n->member_expr_data.property );
         add( ctx, EBX, EAX );
         pop(ctx, EAX);
 	} break;
 
-    case AST_DEREFERENCE:
+	case AST_UNARY_EXPR:
 	{
-        struct ast_node *value = n->dereference_data.value;
-        lvalue(ctx, reg, value);
-	} break;
+		//printf( "operator = %s\n", token_type_to_string( n->unary_expr_data.operator) );
+		switch ( n->unary_expr_data.operator)
+		{
+		case '*':
+			lvalue( ctx, reg, n->unary_expr_data.argument );
+			// mov ebx, [ebx]
+			db( ctx, 0x8b );
+			db( ctx, 0x1b );
+			break;
+            
+		case TK_PLUS_PLUS:
+		{
+			lvalue( ctx, reg, n->unary_expr_data.argument );
+            
+			// inc [ebx]
+			db( ctx, 0xff );
+			db( ctx, 0x03 );
+
+			if ( !n->unary_expr_data.prefix )
+				ctx->flags |= CCF_DEC_EBX;
+		}
+		break;
+
+		default:
+			return 1;
+		}
+	}
+	break;
 
 	default:
         debug_printf("unhandled lvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));
-        break;
+        return 1;
 	}
+    return 0;
 }
 
 static struct scope *active_scope(struct compile_context *ctx)
@@ -1541,9 +1549,12 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     db(ctx, 0xd0);
     
     //insert linux syscall exit
+    //mov ebx, eax
+    db(ctx, 0x89);
+    db(ctx, 0xc3);
     //xor ebx,ebx
-    db(ctx, 0x31);
-    db(ctx, 0xdb);
+    //db(ctx, 0x31);
+    //db(ctx, 0xdb);
     
     db(ctx, 0x31); //xor eax,eax
     db(ctx, 0xc0);

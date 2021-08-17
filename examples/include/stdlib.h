@@ -2,6 +2,7 @@
 #define STDLIB_H
 
 #include <sys/syscall.h>
+#include <stddef.h>
 
 void exit(int code)
 {
@@ -28,5 +29,18 @@ int atoi(const char *_str)
     if(neg)
         return -total;
 	return total;
+}
+
+void *malloc(int size)
+{
+    int current = syscall(SYS_brk, 0);
+    int next = syscall(SYS_brk, current + size);
+    //printf("current=%x,next=%x\n",current,next);
+    return current == next ? NULL : current;
+}
+
+void free(void *p)
+{
+    //does nothing atm
 }
 #endif

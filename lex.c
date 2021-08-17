@@ -352,6 +352,7 @@ retry:
 	case ';':
 	case ':':
 	case ',':
+    case '~':
         return 0;
 
 	default:

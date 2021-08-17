@@ -249,7 +249,8 @@ static struct ast_node *unary_expr_factor(struct ast_context *ctx)
 {
 	int operator = ast_token(ctx)->type;
 	struct ast_node* n;
-    expression( ctx, &n );
+	void array_subscripting( struct ast_context * ctx, struct ast_node * *node );
+	array_subscripting( ctx, &n );
 	return unary_expr( ctx, operator, 1, n );
 }
 
@@ -263,13 +264,6 @@ static struct ast_node *string_factor(struct ast_context *ctx)
 	return string_literal( ctx, ast_token(ctx)->string );
 }
 
-static struct ast_node *dereference_factor(struct ast_context *ctx)
-{
-	struct ast_node* n = push_node( ctx, AST_DEREFERENCE );
-	factor( ctx, &n->dereference_data.value );
-	return n;
-}
-
 static struct ast_node *sizeof_factor(struct ast_context *ctx)
 {
 	ast_expect( ctx, '(', "sizeof expecting (" );
@@ -280,16 +274,6 @@ static struct ast_node *sizeof_factor(struct ast_context *ctx)
 		expression( ctx, &so_node->sizeof_data.subject );
 	ast_expect( ctx, ')', "sizeof expecting )" );
 	return so_node;
-}
-
-static struct ast_node *address_of_factor(struct ast_context *ctx)
-{
-	struct ast_node* n = push_node( ctx, AST_ADDRESS_OF );
-    //TODO: FIXME proper precedence, see order of evaluation
-    //https://en.cppreference.com/w/c/language/operator_precedence
-	void array_subscripting( struct ast_context * ctx, struct ast_node * *node );
-	array_subscripting( ctx, &n->address_of_data.value );
-	return n;
 }
 
 struct ast_node_type_function
@@ -305,13 +289,13 @@ static struct ast_node_type_function factors[] = {
     { '+', unary_expr_factor },
     { '!', unary_expr_factor },
     { '~', unary_expr_factor },
+    { '*', unary_expr_factor },
+    { '&', unary_expr_factor },
     { TK_PLUS_PLUS, unary_expr_factor },
     { TK_MINUS_MINUS, unary_expr_factor },
     { TK_INTEGER, integer_factor },
     { TK_STRING, string_factor },
-    { '*', dereference_factor },
-    { TK_SIZEOF, sizeof_factor },
-    { '&', address_of_factor }
+    { TK_SIZEOF, sizeof_factor }
 };
 
 static void factor( struct ast_context* ctx, struct ast_node **node )
@@ -642,12 +626,6 @@ static void print_ast(struct ast_node *n, int depth)
         printf("type %s\n", data_type_strings[n->primitive_data_type_data.primitive_type]);
 	} break;
 
-	case AST_DEREFERENCE:
-	{
-        printf("dereferencing:\n");
-        print_ast(n->dereference_data.value, depth + 1);
-	} break;
-    
     case AST_RETURN_STMT:
 	{
         printf("return\n");
@@ -683,13 +661,7 @@ static void print_ast(struct ast_node *n, int depth)
         printf("sizeof\n");
         print_ast(n->sizeof_data.subject, depth + 1);
 	} break;
-
-    case AST_ADDRESS_OF:
-	{
-        printf("address of\n");
-        print_ast(n->address_of_data.value, depth + 1);
-	} break;
-
+    
 	default:
 		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
         break;
