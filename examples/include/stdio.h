@@ -63,9 +63,12 @@ void print_decimal(int d)
         d /= 10;
         i += 1;
 	} while(d > 0);
-    buf[sizeof(buf)-i-2]='-';
-    ++i;
-    print(&buf[sizeof(buf) - i - 1]);
+    if(neg)
+	{
+		buf[sizeof( buf ) - i - 2] = '-';
+		++i;
+	}
+	print(&buf[sizeof(buf) - i - 1]);
 }
 
 void print_bits(int d, int little_endian)
