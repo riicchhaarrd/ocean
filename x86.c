@@ -555,9 +555,18 @@ static void load_operand(struct compile_context *ctx, struct ast_node *n)
 {
     if(ctx->flags & CCF_DEC_EBX)
 	{
-        //dec eax
+        //TODO: FIXME dec based the size of the type
+        //dec ebx
         db(ctx, 0x4b);
         ctx->flags &= ~CCF_DEC_EBX;
+	}
+    
+    if(ctx->flags & CCF_INC_EBX)
+	{
+        //TODO: FIXME inc based the size of the type
+        //inc ebx
+        db(ctx, 0x43);
+        ctx->flags &= ~CCF_INC_EBX;
 	}
     
 	int os = data_type_operand_size( ctx, n, 0 );
@@ -1168,13 +1177,28 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 		case TK_PLUS_PLUS:
 		{
 			lvalue( ctx, reg, n->unary_expr_data.argument );
-            
+
+            //TODO: FIXME inc based on type
 			// inc [ebx]
 			db( ctx, 0xff );
 			db( ctx, 0x03 );
 
 			if ( !n->unary_expr_data.prefix )
 				ctx->flags |= CCF_DEC_EBX;
+		}
+		break;
+
+        case TK_MINUS_MINUS:
+		{
+			lvalue( ctx, reg, n->unary_expr_data.argument );
+
+			// TODO: FIXME dec based on type
+			// dec [ebx]
+			db( ctx, 0xff );
+			db( ctx, 0x0b );
+
+			if ( !n->unary_expr_data.prefix )
+				ctx->flags |= CCF_INC_EBX;
 		}
 		break;
 

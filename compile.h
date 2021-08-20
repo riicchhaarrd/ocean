@@ -69,7 +69,8 @@ enum BUILD_TARGET
 enum
 {
     CCF_NONE = 0,
-    CCF_DEC_EBX = 1
+    CCF_DEC_EBX = 1,
+    CCF_INC_EBX = 2
 };
 
 struct compile_context
