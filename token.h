@@ -12,7 +12,8 @@ enum TOKEN_TYPE
     TK_IDENT = 256,
     TK_INTEGER,
     TK_STRING,
-    TK_NUMBER,
+    TK_FLOAT,
+    TK_DOUBLE,
 
     TK_PLUS_ASSIGN,
     TK_MINUS_ASSIGN,
@@ -65,7 +66,8 @@ static const char* token_type_strings[TK_MAX] = {
 	[TK_IDENT] = "ident",
 	[TK_INTEGER] = "integer",
 	[TK_STRING] = "string",
-	[TK_NUMBER] = "number",
+	[TK_FLOAT] = "float",
+	[TK_DOUBLE] = "double",
 	[TK_PLUS_ASSIGN] = "+=",
 	[TK_MINUS_ASSIGN] = "-=",
 	[TK_MULTIPLY_ASSIGN] = "*=",
@@ -130,7 +132,8 @@ struct token
     union
     {
         char string[32]; //C's max identifier length is 31 iirc
-        float number;
+        float flt;
+        double dbl;
         int integer;
         float vector[4];
     };
@@ -156,8 +159,8 @@ static void token_to_string(struct token *t, char *string, size_t n)
     case TK_INTEGER:
         snprintf(string, n, "type: %s, value: %d", token_type_strings[t->type], t->integer);
         return;
-    case TK_NUMBER:
-        snprintf(string, n, "type: %s, value: %f", token_type_strings[t->type], t->number);
+    case TK_FLOAT:
+        snprintf(string, n, "type: %s, value: %f", token_type_strings[t->type], t->flt);
         return;
     }
 }

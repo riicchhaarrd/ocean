@@ -270,6 +270,14 @@ static struct ast_node *integer_factor(struct ast_context *ctx)
 	return int_literal( ctx, ast_token(ctx)->integer );
 }
 
+static struct ast_node *float_factor(struct ast_context *ctx)
+{
+	struct ast_node* n = push_node( ctx, AST_LITERAL );
+	n->literal_data.type = LITERAL_FLOAT;
+	n->literal_data.flt = ast_token( ctx )->flt;
+    return n;
+}
+
 static struct ast_node *string_factor(struct ast_context *ctx)
 {
 	return string_literal( ctx, ast_token(ctx)->string );
@@ -305,6 +313,7 @@ static struct ast_node_type_function factors[] = {
     { TK_PLUS_PLUS, unary_expr_factor },
     { TK_MINUS_MINUS, unary_expr_factor },
     { TK_INTEGER, integer_factor },
+    { TK_FLOAT, float_factor },
     { TK_STRING, string_factor },
     { TK_SIZEOF, sizeof_factor }
 };

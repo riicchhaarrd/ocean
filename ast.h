@@ -35,6 +35,7 @@ enum AST_LITERAL_TYPE
 {
 	LITERAL_INTEGER,
     LITERAL_FLOAT,
+    LITERAL_DOUBLE,
     LITERAL_STRING
 };
 
@@ -50,7 +51,8 @@ struct ast_literal
     union
     {
         char string[32]; //C's max identifier length is 31 iirc
-        float number;
+        float flt;
+        double dbl;
         int integer;
         float vector[4];
     };
@@ -67,7 +69,7 @@ static void print_literal(struct ast_literal* lit)
     if(lit->type == LITERAL_INTEGER)
     printf("literal %d\n", lit->integer);
     else if(lit->type == LITERAL_FLOAT)
-    printf("literal %f\n", lit->number);
+    printf("literal %f\n", lit->flt);
     else if(lit->type == LITERAL_STRING)
         printf("literal '%s'\n", lit->string);
     else

@@ -46,6 +46,46 @@ static int next_check(struct lexer *lex, int check)
     return 0;
 }
 
+static heap_string next_number(struct lexer *lex, int *is_int)
+{
+    *is_int = 1;
+    //undo the fetch from before
+    --lex->pos;
+    
+    heap_string s = NULL;
+    while(1)
+    {
+        int ch = next(lex);
+        if(ch == -1)
+		{
+            heap_string_free(&s);
+			return NULL;
+		}
+		int valid = ( ch >= '0' && ch <= '9' ) || ch == '.' || ch == 'f';
+        if(!valid)
+		{
+            --lex->pos;
+            break;
+		}
+        if(ch == 'f')
+		{
+            *is_int = 0;
+            break;
+		}
+        if(ch == '.')
+		{
+            if(!*is_int) //can't have more than one .
+			{
+                heap_string_free(&s);
+                return NULL;
+			} else
+                *is_int = 0;
+		}
+		heap_string_push( &s, ch );
+	}
+    return s;
+}
+
 static heap_string next_match_string(struct lexer *lex)
 {
     //undo the fetch from before
@@ -118,11 +158,6 @@ static int match_test_ident(int ch)
 static int match_test_string(int ch)
 {
     return ch != '"';
-}
-
-static int match_test_integer(int ch)
-{
-    return ch >= '0' && ch <= '9';
 }
 
 static int byte_value(int ch)
@@ -373,12 +408,22 @@ retry:
 				}
                 tk->integer = (tk->integer << 4) | (bv & 0xf);
 			}
-		} else if(match_test_integer(ch))
+		} else if(ch >= '0' && ch <= '9')
 	    {
-		tk->type = TK_INTEGER;
-		heap_string s = next_match(lex, match_test_integer);
-		tk->integer = atoi(s);
-		heap_string_free(&s);
+            int is_int;
+			heap_string s = next_number( lex, &is_int );
+            if(!s) //error
+                return 1;
+            if(is_int)
+			{
+				tk->type = TK_INTEGER;
+				tk->integer = atoi( s );
+			} else
+			{
+				tk->type = TK_FLOAT;
+				tk->flt = atof( s );
+			}
+			heap_string_free( &s );
 	    } else if(match_test_ident(ch))
 	    {
 		tk->type = TK_IDENT;
