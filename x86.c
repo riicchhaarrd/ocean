@@ -141,6 +141,11 @@ static void push(struct compile_context *ctx, enum REGISTER reg)
     ctx->registers[ESP] -= 4;
 }
 
+static void inc(struct compile_context *ctx, enum REGISTER reg)
+{
+    db(ctx, 0x40 + reg);
+}
+
 static void pop(struct compile_context *ctx, enum REGISTER reg)
 {
     db(ctx, 0x58 + reg);
@@ -403,6 +408,7 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
 int lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+void store_operand(struct compile_context *ctx, struct ast_node *n);
 static void ast_handle_assignment_expression( struct compile_context* ctx, struct ast_node* n )
 {
     push(ctx, EBX);
@@ -526,10 +532,24 @@ static void ast_handle_assignment_expression( struct compile_context* ctx, struc
 		push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
 		pop( ctx, EAX );
+		store_operand( ctx, lhs );
+	}
+	break;
 
-		// TODO: fix hardcoded EBX
-		switch ( os )
-		{
+	default:
+		printf( "unhandled assignment operator\n" );
+		break;
+	}
+    pop(ctx, EBX);
+}
+
+
+void store_operand(struct compile_context *ctx, struct ast_node *n)
+{
+	int os = data_type_operand_size( ctx, n, 1 );
+	// TODO: fix hardcoded EBX
+	switch ( os )
+	{
 		case IMM32:
 			// mov [ebx],eax
 			db( ctx, 0x89 );
@@ -543,36 +563,12 @@ static void ast_handle_assignment_expression( struct compile_context* ctx, struc
 		default:
 			debug_printf( "unhandled operand size %d\n", os );
 			exit( 1 );
-			break;
-		}
-	}
-	break;
-
-	default:
-		printf( "unhandled assignment operator\n" );
 		break;
 	}
-    pop(ctx, EBX);
 }
 
-static void load_operand(struct compile_context *ctx, struct ast_node *n)
+static int load_operand(struct compile_context *ctx, struct ast_node *n)
 {
-    if(ctx->flags & CCF_DEC_EBX)
-	{
-        //TODO: FIXME dec based the size of the type
-        //dec ebx
-        db(ctx, 0x4b);
-        ctx->flags &= ~CCF_DEC_EBX;
-	}
-    
-    if(ctx->flags & CCF_INC_EBX)
-	{
-        //TODO: FIXME inc based the size of the type
-        //inc ebx
-        db(ctx, 0x43);
-        ctx->flags &= ~CCF_INC_EBX;
-	}
-    
 	int os = data_type_operand_size( ctx, n, 0 );
 	switch ( os )
 	{
@@ -592,6 +588,7 @@ static void load_operand(struct compile_context *ctx, struct ast_node *n)
 		exit( 1 );
 		break;
 	}
+    return os;
 }
 
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
@@ -1041,7 +1038,90 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         {
             switch(n->unary_expr_data.operator)
 			{
-            case '&':
+			case '*':
+			{
+				// TODO: FIXME hack, checking whether next node is ++, to prevent using tmp memory somewhere or use
+				// the lea edx, [eax + increment] trick
+				struct ast_node* arg = n->unary_expr_data.argument;
+				if ( arg->type == AST_UNARY_EXPR )
+				{
+
+					switch ( arg->unary_expr_data.operator)
+					{
+					case TK_PLUS_PLUS:
+					{
+						struct ast_node* pparg = arg->unary_expr_data.argument;
+						assert(!arg->unary_expr_data.prefix);
+						push( ctx, EBX );
+						// let's assume pparg is a identifier of type const char *
+						lvalue( ctx, EBX, pparg );
+                        
+                        //save our ptr to our variable to edx
+						push(ctx, EDX);
+						// lea edx,[ebx]
+						db( ctx, 0x8d );
+						db( ctx, 0x13 );
+
+                        //load the actual char * pointer e.g "test" into ebx
+						// mov ebx,[ebx]
+						db( ctx, 0x8b );
+						db( ctx, 0x1b );
+
+                        //then load our value from ebx (can be a char, int or any type, in this case char 8 bits)
+						int os = load_operand( ctx, pparg ); //loads location in EBX into EAX register
+                        //printf("os = %d\n", os);
+                        
+                        //increment the actual pointer value of our string
+                        
+						// inc [edx]
+						db( ctx, 0xff );
+						db( ctx, 0x02 );
+
+                        //restore our EDX value if we ever used it for anything else.
+                        pop(ctx, EDX);
+                        
+						pop( ctx, EBX );
+					}
+					break;
+
+					default:
+						debug_printf( "unhandled operator after dereference\n" );
+						return 1;
+					}
+				}
+				else
+				{
+					push( ctx, EBX );
+					rvalue( ctx, reg, n->unary_expr_data.argument );
+					// mov ebx,eax
+					db( ctx, 0x89 );
+					db( ctx, 0xc3 );
+					load_operand( ctx, n->unary_expr_data.argument );
+					pop( ctx, EBX );
+				}
+			} break;
+
+            case TK_PLUS_PLUS:
+				// handle generic ++ case
+				push( ctx, EBX );
+				lvalue( ctx, EBX, n->unary_expr_data.argument );
+				if(!n->unary_expr_data.prefix)
+				{
+					load_operand( ctx, n->unary_expr_data.argument );
+					// inc [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x03 );
+				} else
+				{
+					// inc [ebx]
+					db( ctx, 0xff );
+					db( ctx, 0x03 );
+					load_operand( ctx, n->unary_expr_data.argument );
+				}
+				pop( ctx, EBX );
+				break;
+			case '&':
+                push(ctx, EBX);
 				lvalue( ctx, EBX, n->unary_expr_data.argument );
 				if ( reg == EAX )
 				{
@@ -1049,8 +1129,9 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 					db( ctx, 0x89 );
 					db( ctx, 0xd8 );
 				}
+				pop( ctx, EBX );
 				break;
-
+                
 			case '-':
                 rvalue(ctx, EAX, arg);
                 //neg eax
@@ -1207,36 +1288,9 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 			db( ctx, 0x8b );
 			db( ctx, 0x1b );
 			break;
-            
-		case TK_PLUS_PLUS:
-		{
-			lvalue( ctx, reg, n->unary_expr_data.argument );
-
-            //TODO: FIXME inc based on type
-			// inc [ebx]
-			db( ctx, 0xff );
-			db( ctx, 0x03 );
-
-			if ( !n->unary_expr_data.prefix )
-				ctx->flags |= CCF_DEC_EBX;
-		}
-		break;
-
-        case TK_MINUS_MINUS:
-		{
-			lvalue( ctx, reg, n->unary_expr_data.argument );
-
-			// TODO: FIXME dec based on type
-			// dec [ebx]
-			db( ctx, 0xff );
-			db( ctx, 0x0b );
-
-			if ( !n->unary_expr_data.prefix )
-				ctx->flags |= CCF_INC_EBX;
-		}
-		break;
 
 		default:
+			debug_printf( "unhandled unary lvalue '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 			return 1;
 		}
 	}
@@ -1319,7 +1373,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         struct ast_node *condition = n->if_stmt_data.test;
         struct ast_node *alternative = n->if_stmt_data.alternative;
 
-        process(ctx, condition);
+        rvalue(ctx, EAX, condition);
 		// test eax,eax
 		db( ctx, 0x85 );
 		db( ctx, 0xc0 );
@@ -1463,7 +1517,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         int jmp_beg = instruction_position(ctx);
         
         process(ctx, n->while_stmt_data.body);
-        process(ctx, n->while_stmt_data.test);
+        rvalue(ctx, EAX, n->while_stmt_data.test);
         
 		// test eax,eax
 		db( ctx, 0x85 );
@@ -1486,7 +1540,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         struct scope scope;
         enter_scope(ctx, &scope);
         int pos = instruction_position(ctx);
-        process(ctx, n->while_stmt_data.test);
+        rvalue(ctx, EAX, n->while_stmt_data.test);
         
 		// test eax,eax
 		db( ctx, 0x85 );
@@ -1531,7 +1585,7 @@ static void process(struct compile_context *ctx, struct ast_node *n)
         int pos = instruction_position(ctx);
         if(n->for_stmt_data.test)
 		{
-			process( ctx, n->for_stmt_data.test );
+			rvalue( ctx, EAX, n->for_stmt_data.test );
 			// test eax,eax
 			db( ctx, 0x85 );
 			db( ctx, 0xc0 );

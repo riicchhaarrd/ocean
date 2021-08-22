@@ -66,13 +66,6 @@ enum BUILD_TARGET
     BT_WINDOWS
 };
 
-enum
-{
-    CCF_NONE = 0,
-    CCF_DEC_EBX = 1,
-    CCF_INC_EBX = 2
-};
-
 struct compile_context
 {
     int build_target;
@@ -89,6 +82,5 @@ struct compile_context
     intptr_t registers[8];
     struct scope *scope[16]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
-    int flags;
 };
 #endif
