@@ -238,13 +238,13 @@ retry:
         break;
 	case '"':
     {
-        ++lex->pos;
         tk->type = TK_STRING;
         tk->string[0] = 0;
         if(!next_check(lex, '"'))
         {
             return 0;
         }
+        ++lex->pos;
         heap_string s = next_match_string(lex);
         snprintf(tk->string, sizeof(tk->string), "%s", s);
         heap_string_free(&s);
