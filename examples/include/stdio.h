@@ -32,20 +32,11 @@ void putchar(int ch)
 
 void print_hex(int d)
 {
-    char buf[32];
-    int i = 0;
-    buf[31] = 0;
-    while(d > 0)
+    for(int i = 0; i < 8; ++i)
 	{
-        int m = d % 16;
-        if(m < 10)
-        buf[sizeof(buf) - i - 2] = m + '0';
-        if(m >= 10)
-            buf[sizeof(buf) - i - 2] = (m-10) + 'A';
-        d /= 16;
-        i += 1;
+		int nibble = ( d >> ( ( 8 - i - 1 ) * 4 ) ) & 15;
+		putchar( nibble >= 10 ? 'A' + nibble - 10 : '0' + nibble );
 	}
-    print(&buf[sizeof(buf) - i - 1]);
 }
 
 void print_decimal(int d)
