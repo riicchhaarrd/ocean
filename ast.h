@@ -232,6 +232,12 @@ struct ast_seq_expr
     int numexpr;
 };
 
+struct ast_cast
+{
+    struct ast_node *type;
+    struct ast_node *expr;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -265,6 +271,7 @@ struct ast_node
         struct ast_ternary_expr ternary_expr_data;
         struct ast_break_stmt break_stmt_data;
         struct ast_seq_expr seq_expr_data;
+        struct ast_cast cast_data;
     };
 };
 

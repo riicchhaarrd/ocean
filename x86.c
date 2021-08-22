@@ -391,7 +391,11 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
     case AST_FOR_STMT:
         return data_type_operand_size(ctx, n->for_stmt_data.test, ptr);
     case AST_UNARY_EXPR:
-        return data_type_operand_size(ctx, n->unary_expr_data.argument, ptr);
+		if ( n->unary_expr_data.operator== '*' )
+			return data_type_operand_size( ctx, n->unary_expr_data.argument, 0 );
+		return data_type_operand_size(ctx, n->unary_expr_data.argument, ptr);
+    case AST_CAST:
+        return data_type_operand_size(ctx, n->cast_data.type, ptr);
 	}
 	debug_printf( "unhandled data type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 	return 0;
@@ -1207,6 +1211,41 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 		}
 	}
 	break;
+    
+	case AST_CAST:
+	{
+        lvalue(ctx, reg, n->cast_data.expr);
+        struct ast_node *from_type = n->cast_data.expr;
+        struct ast_node *to_type = n->cast_data.type;
+        switch(from_type->type)
+		{
+        case AST_IDENTIFIER:
+		{
+            struct ast_node *ident_node = identifier_data_node(ctx, n->cast_data.expr);
+            switch(ident_node->type)
+			{
+			default:
+                //pointers of different sizes will be handled in e.g data_type_size
+                if(ident_node->type != to_type->type)
+				{
+					printf( "lvalue: cannot cast identifier type '%s' to '%s'\n",
+							AST_NODE_TYPE_to_string( ident_node->type ), AST_NODE_TYPE_to_string( to_type->type ) );
+					exit( -1 );
+				}
+				break;
+			}
+		} break;
+
+		default:
+            if(from_type->type != to_type->type)
+			{
+				printf( "lvalue: cannot cast '%s' to '%s'\n", AST_NODE_TYPE_to_string( from_type->type ),
+						AST_NODE_TYPE_to_string( to_type->type ) );
+				exit( -1 );
+			}
+			break;
+		}
+	} break;
 
 	default:
         debug_printf("unhandled lvalue '%s'\n", AST_NODE_TYPE_to_string(n->type));

@@ -240,7 +240,18 @@ static struct ast_node *ident_factor(struct ast_context *ctx)
 static struct ast_node *parens_factor(struct ast_context *ctx)
 {
 	struct ast_node* n;
-    expression( ctx, &n );
+	int td = type_declaration( ctx, &n );
+	ast_assert( ctx, !td, "error in type" );
+	if ( n )
+	{
+		ast_expect( ctx, ')', "no ending )" );
+		struct ast_node* cast = push_node( ctx, AST_CAST );
+		cast->cast_data.type = n;
+		void array_subscripting( struct ast_context * ctx, struct ast_node * *node );
+		array_subscripting( ctx, &cast->cast_data.expr );
+		return cast;
+	}
+	expression( ctx, &n );
 	ast_expect( ctx, ')', "no ending )" );
 	return n;
 }
@@ -656,7 +667,14 @@ static void print_ast(struct ast_node *n, int depth)
 		}
 	} break;
 
-    case AST_SIZEOF:
+    case AST_CAST:
+	{
+        printf("cast\n");
+        print_ast(n->cast_data.type, depth + 1);
+        print_ast(n->cast_data.expr, depth + 1);
+	} break;
+
+	case AST_SIZEOF:
 	{
         printf("sizeof\n");
         print_ast(n->sizeof_data.subject, depth + 1);
