@@ -19,6 +19,7 @@
 #define SYS_lchown 16
 
 #define SYS_brk 0x2d
+#define SYS_nanosleep 0xa2
 
 //TODO: add more syscalls nr
 #endif

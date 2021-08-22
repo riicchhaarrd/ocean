@@ -978,6 +978,21 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 			lvalue( ctx, EBX, object );
         
         rvalue( ctx, reg, n->member_expr_data.property );
+        
+		int os = data_type_operand_size( ctx, object, 0 );
+
+		push( ctx, ESI );
+        
+		// mov esi, imm32
+		db( ctx, 0xbe );
+		dd( ctx, os );
+        
+		// imul esi
+		db( ctx, 0xf7 );
+		db( ctx, 0xee );
+        
+		pop( ctx, ESI );
+        
         add( ctx, EBX, reg );
         load_operand(ctx, dn);
         pop(ctx, EBX);
@@ -1162,7 +1177,22 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 		else
 			lvalue( ctx, reg, object );
 		rvalue( ctx, EAX, n->member_expr_data.property );
-        add( ctx, EBX, EAX );
+
+		int os = data_type_operand_size( ctx, object, 0 );
+        
+		push( ctx, ESI );
+        
+		// mov esi, imm32
+		db( ctx, 0xbe );
+		dd( ctx, os );
+        
+		// imul esi
+		db( ctx, 0xf7 );
+		db( ctx, 0xee );
+        
+		pop( ctx, ESI );
+        
+		add( ctx, EBX, EAX );
         pop(ctx, EAX);
 	} break;
 
