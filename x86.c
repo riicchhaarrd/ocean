@@ -303,7 +303,13 @@ static int function_variable_declaration_stack_size( struct compile_context* ctx
 		assert( ds > 0 );
 		total += ds;
 	}
-	return total;
+    
+    //align to 32
+    //TODO: fix this make sure the esp value is aligned instead
+    int aligned = total & ~31;
+    if(aligned == 0)
+        return 32;
+    return aligned;
 }
 
 #if 0 
@@ -627,9 +633,16 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 		{
         case AST_ARRAY_DATA_TYPE:
 			// lea r32,[ebp - offset]
-			db( ctx, 0x8d );
-			db( ctx, 0x45 + 8 * reg );
-			db( ctx, offset );
+
+            // handles only byte size offset
+			//db( ctx, 0x8d );
+			//db( ctx, 0x45 + 8 * reg );
+			//db( ctx, offset );
+
+			// lea r32,[ebp - offset]
+			db(ctx, 0x8d);
+			db(ctx, 0x85 + 8 * reg);
+			dd(ctx, offset);
 			break;
             
         default:
@@ -638,11 +651,16 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
             switch(os)
 			{
             case IMM32:
+				/* // mov r32,[ebp - offset] */
+				/* db( ctx, 0x8b ); */
+				/* db( ctx, 0x45 + 8 * reg ); */
+				/* db( ctx, offset ); */
+                
 				// mov r32,[ebp - offset]
-				db( ctx, 0x8b );
-				db( ctx, 0x45 + 8 * reg );
-				db( ctx, offset );
-                break;
+				db(ctx, 0x8b);
+				db(ctx, 0x85 + 8 * reg);
+				dd(ctx, offset);
+				break;
             case IMM8:
                 push(ctx,EBX);
                 lvalue(ctx,EBX,n);
@@ -1239,10 +1257,15 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
         struct ast_node *variable_type = var->data_type_node;
         int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
         
+		/* // lea r32,[ebp - offset] */
+		/* db( ctx, 0x8d ); */
+		/* db( ctx, 0x45 + 8 * reg ); */
+		/* db( ctx, offset ); */
+        
 		// lea r32,[ebp - offset]
-		db( ctx, 0x8d );
-		db( ctx, 0x45 + 8 * reg );
-		db( ctx, offset );
+		db(ctx, 0x8d);
+		db(ctx, 0x85 + 8 * reg);
+		dd(ctx, offset);
 	} break;
     
 	case AST_MEMBER_EXPR:
