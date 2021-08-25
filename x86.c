@@ -79,6 +79,7 @@ static int primitive_data_type_size(int type)
     case DT_CHAR: return IMM8;
     case DT_SHORT: return IMM16;
     case DT_INT: return IMM32;
+    case DT_LONG: return IMM32;
     case DT_NUMBER: return IMM32;
     case DT_FLOAT: return IMM32;
     case DT_DOUBLE: return IMM32;
@@ -599,12 +600,18 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	{
 		case IMM32:
 			// mov [ebx],eax
-			db( ctx, 0x89 );
-			db( ctx, 0x03 );
-			break;
-		case IMM8:
-			// mov byte ptr [ebx], al
-			db( ctx, 0x88 );
+		db( ctx, 0x89 );
+		db( ctx, 0x03 );
+		break;
+    case IMM16:
+		// mov word ptr [ebx], ax
+		db( ctx, 0x66 );
+		db( ctx, 0x89 );
+		db( ctx, 0x03 );
+        break;
+	case IMM8:
+		// mov byte ptr [ebx], al
+		db( ctx, 0x88 );
 			db( ctx, 0x03 );
 			break;
 		default:
@@ -624,6 +631,12 @@ static int load_operand(struct compile_context *ctx, struct ast_node *n)
 		db( ctx, 0x8b );
 		db( ctx, 0x03 );
 		break;
+    case IMM16:
+		// movzx eax, word [ebx]
+		db( ctx, 0x0f );
+		db( ctx, 0xb7 );
+		db( ctx, 0x03 );
+        break;
 	case IMM8:
 		// movzx eax, byte [ebx]
 		db( ctx, 0x0f );
@@ -702,6 +715,7 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 				db(ctx, 0x85 + 8 * reg);
 				dd(ctx, offset);
 				break;
+            case IMM16:
             case IMM8:
                 push(ctx,EBX);
                 lvalue(ctx,EBX,n);
@@ -995,6 +1009,7 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         case AST_PRIMITIVE_DATA_TYPE:
         case AST_POINTER_DATA_TYPE:
         case AST_ARRAY_DATA_TYPE:
+        case AST_STRUCT_DATA_TYPE:
 			sz = data_type_size( ctx, n->sizeof_data.subject );
 			break;
 		case AST_IDENTIFIER:

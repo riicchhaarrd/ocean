@@ -226,7 +226,7 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
 			parse_advance(&ctx->parse_context);
 			type_declaration_pointer(ctx, data_type_node);
 		}
-	} else if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
+	} else if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_LONG ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
 		 !ast_accept( ctx, TK_T_FLOAT ) || !ast_accept( ctx, TK_T_DOUBLE ) || !ast_accept(ctx, TK_T_VOID))
 	{
 		int primitive_type = ast_token(ctx)->type - TK_T_CHAR;
@@ -241,7 +241,7 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
         
         type_declaration_pointer(ctx, data_type_node);
 	}
-    return *data_type_node ? 0 : ( pre_qualifiers == TQ_NONE ? 0 : 1 );
+	return *data_type_node ? 0 : ( pre_qualifiers == TQ_NONE ? 0 : 1 );
 }
 
 static void expression(struct ast_context *ctx, struct ast_node **node);

@@ -9,11 +9,12 @@ enum DATA_TYPE
     DT_FLOAT,
     DT_DOUBLE,
     DT_NUMBER,
-    DT_VOID
+    DT_VOID,
+    DT_LONG
 };
 
 static const char* data_type_strings[] = {
-    "char", "short", "int", "float", "double", "number", "void", NULL
+    "char", "short", "int", "float", "double", "number", "void", "long", NULL
 };
 
 #endif

@@ -35,6 +35,7 @@ enum TOKEN_TYPE
     TK_T_DOUBLE,
     TK_T_NUMBER,
     TK_T_VOID,
+    TK_T_LONG,
     TK_T_UNSIGNED,
 
     TK_CONST,
@@ -88,6 +89,7 @@ static const char* token_type_strings[TK_MAX] = {
 	[TK_T_NUMBER] = "number",
 	[TK_T_VOID] = "void",
 	[TK_T_UNSIGNED] = "unsigned",
+	[TK_T_LONG] = "long",
 	[TK_CONST] = "const",
 	[TK_SIZEOF] = "sizeof",
 	[TK_LSHIFT] = "<<",

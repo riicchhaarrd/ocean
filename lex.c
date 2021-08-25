@@ -455,6 +455,8 @@ retry:
 				tk->type = TK_T_SHORT;
 			else if ( !strcmp( s, "int" ) )
 				tk->type = TK_T_INT;
+			else if ( !strcmp( s, "long" ) )
+				tk->type = TK_T_LONG;
 			else if ( !strcmp( s, "float" ) )
 				tk->type = TK_T_FLOAT;
 			else if ( !strcmp( s, "double" ) )
