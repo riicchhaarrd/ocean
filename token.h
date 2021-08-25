@@ -56,6 +56,8 @@ enum TOKEN_TYPE
     TK_DOT_THREE_TIMES,
     TK_PLUS_PLUS,
     TK_MINUS_MINUS,
+    TK_STRUCT,
+    TK_ARROW,
     
     TK_EOF,
     TK_MAX,
@@ -104,6 +106,8 @@ static const char* token_type_strings[TK_MAX] = {
 	[TK_DOT_THREE_TIMES] = "...",
 	[TK_PLUS_PLUS] = "++",
 	[TK_MINUS_MINUS] = "--",
+    [TK_STRUCT] = "struct",
+    [TK_ARROW] = "->",
 	[TK_EOF] = "eof"
 };
 

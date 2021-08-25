@@ -2,6 +2,7 @@
 #include "ast.h"
 #include "parse.h"
 #include "rhd/linked_list.h"
+#include "rhd/hash_map.h"
 #include "std.h"
 
 struct ast_context
@@ -11,7 +12,7 @@ struct ast_context
     struct linked_list *node_list;
     struct ast_node *root_node;
     struct ast_node *function;
-
+    struct hash_map *type_definitions;
     struct ast_node *last_node;
 
     int verbose;
@@ -113,6 +114,7 @@ static struct ast_node *array_subscript_expr(struct ast_context *ctx, struct ast
     n->member_expr_data.computed = 0;
     n->member_expr_data.object = lhs;
     n->member_expr_data.property = rhs;
+    n->member_expr_data.as_pointer = 0;
     return n;
 }
 
@@ -164,6 +166,16 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
     return n;
 }
 
+static void add_type_definition(struct ast_context *ctx, const char *key, struct ast_node *n)
+{
+	hash_map_insert(ctx->type_definitions, key, *n);
+}
+
+static struct ast_node *find_type_definition(struct ast_context *ctx, const char *key)
+{
+    return hash_map_find(ctx->type_definitions, key);
+}
+
 void expression_sequence(struct ast_context *ctx, struct ast_node **node);
 
 static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
@@ -176,6 +188,20 @@ static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
     return 0;
 }
 
+static void type_declaration_pointer(struct ast_context *ctx, struct ast_node **n)
+{
+	int np = 0;
+	while (!ast_accept(ctx, '*'))
+		++np;
+
+	for (int i = 0; i < np; ++i)
+	{
+		struct ast_node* pointer_type_node = push_node(ctx, AST_POINTER_DATA_TYPE);
+		pointer_type_node->pointer_data_type_data.data_type = *n;
+		*n = pointer_type_node;
+	}
+}
+
 static int type_declaration(struct ast_context *ctx, struct ast_node **data_type_node)
 {
     *data_type_node = NULL;
@@ -184,29 +210,36 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
 
     //TODO: implement const/volatile etc and other qualifiers
     type_qualifiers(ctx, &pre_qualifiers);
-    
-	if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
+
+    struct token *tk = parse_token(&ctx->parse_context);
+	if (tk->type == TK_IDENT)
+	{
+		struct ast_node* ref = find_type_definition(ctx, ast_token(ctx)->string);
+		if (ref)
+		{
+			int post_qualifiers = TQ_NONE;
+			type_qualifiers(ctx, &post_qualifiers);
+			struct ast_node* decl_node = push_node(ctx, AST_STRUCT_DATA_TYPE);
+            decl_node->struct_data_type_data.struct_ref = ref;
+            decl_node->struct_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
+			*data_type_node = decl_node;
+			parse_advance(&ctx->parse_context);
+			type_declaration_pointer(ctx, data_type_node);
+		}
+	} else if ( !ast_accept( ctx, TK_T_CHAR ) || !ast_accept( ctx, TK_T_SHORT ) || !ast_accept( ctx, TK_T_INT ) ||
 		 !ast_accept( ctx, TK_T_FLOAT ) || !ast_accept( ctx, TK_T_DOUBLE ) || !ast_accept(ctx, TK_T_VOID))
 	{
 		int primitive_type = ast_token(ctx)->type - TK_T_CHAR;
         
         int post_qualifiers = TQ_NONE;
         type_qualifiers(ctx, &post_qualifiers);
-        int np = 0;
-        while(!ast_accept(ctx, '*'))
-            ++np;
 
 		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
 		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
 		primitive_type_node->primitive_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
         *data_type_node = primitive_type_node;
-
-        for(int i = 0; i < np; ++i)
-		{
-			struct ast_node* pointer_type_node = push_node( ctx, AST_POINTER_DATA_TYPE );
-			pointer_type_node->pointer_data_type_data.data_type = *data_type_node;
-            *data_type_node = pointer_type_node;
-		}
+        
+        type_declaration_pointer(ctx, data_type_node);
 	}
     return *data_type_node ? 0 : ( pre_qualifiers == TQ_NONE ? 0 : 1 );
 }
@@ -214,10 +247,36 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
 static void expression(struct ast_context *ctx, struct ast_node **node);
 static void factor( struct ast_context* ctx, struct ast_node **node );
 
+//TODO: FIXME use a hash map or atleast hash the strings to speed it up
+static struct ast_node *find_declaration(struct ast_context *ctx, const char *name)
+{
+    assert(ctx->function);
+    for(int i = 0; i < ctx->function->func_decl_data.numdeclarations; ++i)
+	{
+		struct ast_node *decl = ctx->function->func_decl_data.declarations[i];
+        if(!strcmp(decl->variable_decl_data.id->identifier_data.name, name))
+            return decl;
+	}
+	for (int i = 0; i < ctx->function->func_decl_data.numparms; ++i)
+	{
+        if(!strcmp(ctx->function->func_decl_data.parameters[i]->variable_decl_data.id->identifier_data.name, name))
+            return ctx->function->func_decl_data.parameters[i];
+	}
+	return NULL;
+}
+
 static struct ast_node *ident_factor(struct ast_context *ctx)
 {
-	struct ast_node* ident = identifier( ctx, ast_token(ctx)->string );
-	if ( !ast_accept( ctx, '(' ) )
+	const char* ident_string = ast_token(ctx)->string;
+	struct ast_node* ident = identifier(ctx, ident_string);
+	struct ast_node *decl = find_declaration(ctx, ident_string);
+    int is_func_call = !ast_accept(ctx, '(');
+    if(!decl && !is_func_call)
+	{
+        ast_error(ctx, "declaration not found for '%s'", ident_string);
+        return NULL;
+	}
+	if ( is_func_call )
 	{
 		struct ast_node* n = push_node( ctx, AST_FUNCTION_CALL_EXPR );
 		n->call_expr_data.callee = ident;
@@ -233,6 +292,18 @@ static struct ast_node *ident_factor(struct ast_context *ctx)
 				break;
 		} while ( !ast_accept( ctx, ',' ) );
 		return n;
+	} else if(!ast_accept(ctx, '.') || !ast_accept(ctx, TK_ARROW))
+    {
+        int as_ptr = ast_token(ctx)->type == TK_ARROW;
+		struct ast_node* n = push_node(ctx, AST_STRUCT_MEMBER_EXPR);
+		n->member_expr_data.computed = 0;
+		n->member_expr_data.object = ident;
+		n->member_expr_data.as_pointer = as_ptr;
+
+		// structure member access
+		ast_expect(ctx, TK_IDENT, "expected structure member name");
+		n->member_expr_data.property = identifier(ctx, ast_token(ctx)->string);
+        return n;
 	}
 	return ident;
 }
@@ -709,10 +780,11 @@ static void variable_declaration( struct ast_context* ctx, struct ast_node** out
         ast_expect(ctx, TK_IDENT, "expected identifier for type declaration");
 		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
 
-		struct ast_node* decl_node = push_node( ctx, AST_VARIABLE_DECL );
-		assert( ctx->function );
-		if ( !is_param )
+		struct ast_node* decl_node = push_node(ctx, AST_VARIABLE_DECL);
+		if (!is_param && ctx->function)
+		{
 			ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
+		}
 		decl_node->variable_decl_data.id = id;
 		decl_node->variable_decl_data.data_type = type_decl;
         decl_node->variable_decl_data.initializer_value = NULL;
@@ -963,8 +1035,37 @@ static struct ast_node *program(struct ast_context *ctx)
     while(1)
     {
         if(!ast_accept(ctx, TK_EOF)) break;
-        
-        struct ast_node* type_decl = NULL;
+
+        if(!ast_accept(ctx, TK_STRUCT))
+		{
+            ast_expect(ctx, TK_IDENT, "no name for struct type");
+
+			struct ast_node struct_node = {.parent = NULL, .type = AST_STRUCT_DECL, .rvalue = 0};
+			snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "%s",
+					 ast_token(ctx)->string);
+            struct_node.struct_decl_data.numfields = 0;
+
+			ast_expect(ctx, '{', "no starting brace for struct type");
+
+			while (1)
+			{
+				struct ast_node* field_node;
+				variable_declaration(ctx, &field_node, 0);
+				if (!field_node)
+					break;
+				ast_expect(ctx, ';', "expected ; in struct field");
+                struct_node.struct_decl_data.fields[struct_node.struct_decl_data.numfields++] = field_node;
+			}
+
+			ast_expect(ctx, '}', "no ending brace for struct type");
+			ast_expect(ctx, ';', "no ending semicolon for struct type");
+
+			//linked_list_prepend(program_node->program_data.body, struct_node);
+            add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
+            continue;
+		}
+
+		struct ast_node* type_decl = NULL;
         int td = type_declaration( ctx , &type_decl );
         ast_assert(ctx, !td, "error in type declaration");
 		// TODO: implement global variables assignment, function prototypes and a preprocessor
@@ -1012,6 +1113,7 @@ static struct ast_node *program(struct ast_context *ctx)
         ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
 		decl->func_decl_data.body = block_node;
 		linked_list_prepend( program_node->program_data.body, decl );
+        ctx->function = NULL;
 	}
     return program_node;
 }
@@ -1024,7 +1126,8 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         .node_list = NULL,
         .verbose = verbose,
         .function = NULL,
-        .last_node = NULL
+        .last_node = NULL,
+        .type_definitions = hash_map_create(struct ast_node)
     };
 
     context.parse_context.current_token = NULL;

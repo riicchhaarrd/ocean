@@ -164,6 +164,7 @@ struct ast_member_expr
     struct ast_node *object;
     struct ast_node *property;
     int computed; //unused atm
+    int as_pointer;
 };
 
 enum TYPE_QUALIFIER
@@ -182,7 +183,15 @@ struct ast_primitive_data_type
 
 struct ast_struct_data_type
 {
-//TODO: FIXME
+    struct ast_node *struct_ref;
+    int qualifiers;
+};
+
+struct ast_struct_decl
+{
+	char name[64];
+	struct ast_node* fields[32]; // TODO: increase N
+	int numfields;
 };
 
 struct ast_array_data_type
@@ -274,6 +283,8 @@ struct ast_node
         struct ast_break_stmt break_stmt_data;
         struct ast_seq_expr seq_expr_data;
         struct ast_cast cast_data;
+        struct ast_struct_data_type struct_data_type_data;
+        struct ast_struct_decl struct_decl_data;
     };
 };
 

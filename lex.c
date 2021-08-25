@@ -284,7 +284,11 @@ retry:
         }
         break;
     case '-':
-        if(!next_check(lex, '='))
+        if(!next_check(lex, '>'))
+		{
+            tk->type = TK_ARROW;
+            return 0;
+		} else if(!next_check(lex, '='))
         {
             tk->type = TK_MINUS_ASSIGN;
             return 0;
@@ -465,6 +469,8 @@ retry:
 				tk->type = TK_SIZEOF;
 			else if ( !strcmp( s, "__emit" ) )
 				tk->type = TK_EMIT;
+			else if ( !strcmp( s, "struct" ) )
+				tk->type = TK_STRUCT;
 		}
 		snprintf(tk->string, sizeof(tk->string), "%s", s);
 		heap_string_free(&s);

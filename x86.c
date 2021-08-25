@@ -7,6 +7,8 @@
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
 
+struct ast_node *get_struct_member_info(struct compile_context* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size);
+
 int instruction_position(struct compile_context *ctx)
 {
     return heap_string_size(&ctx->instr);
@@ -90,6 +92,15 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
 	{
+    case AST_STRUCT_DATA_TYPE:
+    {
+        int total = 0;
+        struct ast_node *ref = n->struct_data_type_data.struct_ref;
+        assert(ref);
+        for(int i = 0; i < ref->struct_decl_data.numfields; ++i)
+            total += data_type_size(ctx, ref->struct_decl_data.fields[i]->variable_decl_data.data_type);
+        return total;
+	} break;
     case AST_IDENTIFIER:
 	{
 		struct variable* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
@@ -393,9 +404,39 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	case AST_ARRAY_DATA_TYPE:
 		return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type );
 
+    case AST_STRUCT_MEMBER_EXPR:
+    {
+		struct ast_node* idn = identifier_data_node(ctx, n->member_expr_data.object);
+        //ast_print_node_type("idn", idn);
+		assert(idn->type == AST_STRUCT_DATA_TYPE || idn->type == AST_POINTER_DATA_TYPE);
+        struct ast_node *sr = NULL;
+        if(idn->type == AST_POINTER_DATA_TYPE)
+            sr = idn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+        else
+            sr = idn->struct_data_type_data.struct_ref;
+            
+		for (int i = 0; i < sr->struct_decl_data.numfields; ++i)
+		{
+			if (!strcmp(sr->struct_decl_data.fields[i]
+							->variable_decl_data.id->identifier_data.name,
+						n->member_expr_data.property->identifier_data.name))
+			{
+				return data_type_operand_size(
+					ctx,
+					sr->struct_decl_data.fields[i]->variable_decl_data.data_type,
+					ptr);
+			}
+		}
+		abort();
+		return 0;
+	} break;
+        
     case AST_MEMBER_EXPR:
-        return data_type_operand_size(ctx, n->member_expr_data.object, 0);
-    case AST_WHILE_STMT:
+    {
+		assert(n->member_expr_data.object->type == AST_IDENTIFIER);
+		return data_type_operand_size(ctx, n->member_expr_data.object, 0);
+	} break;
+	case AST_WHILE_STMT:
         return data_type_operand_size(ctx, n->while_stmt_data.test, ptr);
     case AST_DO_WHILE_STMT:
         return data_type_operand_size(ctx, n->do_while_stmt_data.test, ptr);
@@ -974,6 +1015,44 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         dd(ctx, sz);
 	} break;
 
+    case AST_STRUCT_MEMBER_EXPR:
+    {
+        push(ctx, EBX);
+        struct ast_node *object = n->member_expr_data.object;
+		struct ast_node *dn = identifier_data_node(ctx, object);
+        //ast_print_node_type("object", dn);
+		if ( dn->type == AST_POINTER_DATA_TYPE )
+        {
+			rvalue( ctx, EAX, object );
+
+			// mov ebx, eax
+			db( ctx, 0x89 );
+			db( ctx, 0xc3 );
+		}
+		else
+			lvalue( ctx, EBX, object );
+        
+		struct ast_node* sr = NULL;
+		if (dn->type == AST_POINTER_DATA_TYPE)
+			sr = dn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+		else
+			sr = dn->struct_data_type_data.struct_ref;
+
+		assert(n->member_expr_data.property->type == AST_IDENTIFIER);
+		int off, sz;
+		struct ast_node *field = get_struct_member_info(ctx, &sr->struct_decl_data, n->member_expr_data.property->identifier_data.name, &off,
+							   &sz);
+		assert(sz > 0);
+
+		// add ebx, imm32
+		db(ctx, 0x81);
+		db(ctx, 0xc3);
+		dd(ctx, off);
+
+		load_operand(ctx, field->variable_decl_data.data_type);
+        pop(ctx, EBX);
+	} break;    
+
     case AST_MEMBER_EXPR:
     {
         push(ctx, EBX);
@@ -1244,6 +1323,23 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
     return 0;
 }
 
+struct ast_node *get_struct_member_info(struct compile_context* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size)
+{
+    int total_offset = 0;
+    for(int i = 0; i < decl->numfields; ++i)
+	{
+        int sz = data_type_operand_size(ctx, decl->fields[i]->variable_decl_data.data_type, 1);
+		if (!strcmp(decl->fields[i]->variable_decl_data.id->identifier_data.name, member_name))
+		{
+            *offset = total_offset;
+            *size = sz;
+            return decl->fields[i];
+		}
+        total_offset += sz;
+	}
+    return NULL;
+}
+
 // locator value, can be local variable, global variable, array offset or any other valid lvalue
 int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 {
@@ -1268,36 +1364,95 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 		dd(ctx, offset);
 	} break;
     
+	case AST_STRUCT_MEMBER_EXPR:
+	{
+		struct ast_node* object = n->member_expr_data.object;
+		struct ast_node* dn = identifier_data_node(ctx, object);
+        switch(dn->type)
+		{
+		case AST_POINTER_DATA_TYPE:
+		case AST_STRUCT_DATA_TYPE:
+		{
+			struct ast_node* sr = NULL;
+			if (dn->type == AST_POINTER_DATA_TYPE)
+				sr = dn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+			else
+				sr = dn->struct_data_type_data.struct_ref;
+
+			assert(n->member_expr_data.property->type == AST_IDENTIFIER);
+			int off, sz;
+			get_struct_member_info(ctx, &sr->struct_decl_data, n->member_expr_data.property->identifier_data.name, &off,
+								   &sz);
+			assert(sz > 0);
+			// printf("offset = %d, sz = %d for '%s'\n", off, sz, n->member_expr_data.property->identifier_data.name);
+
+			push(ctx, EAX);
+			if (dn->type == AST_POINTER_DATA_TYPE)
+			{
+                //should be good to go for identifiers, most of the rvalue values are still hardcoded to EAX though...
+                assert(object->type == AST_IDENTIFIER);
+				rvalue(ctx, reg, object);
+			}
+			else
+				lvalue(ctx, reg, object);
+
+			// add ebx, imm32
+			db(ctx, 0x81);
+			db(ctx, 0xc3);
+			dd(ctx, off);
+
+			pop(ctx, EAX);
+		}
+		break;
+		}
+	}
+	break;
+
 	case AST_MEMBER_EXPR:
 	{
 		// TODO: FIXME for multidimensional arrays
 		struct ast_node* object = n->member_expr_data.object;
-        push(ctx, EAX);
 		struct ast_node* dn = identifier_data_node( ctx, object );
-		if ( dn->type == AST_POINTER_DATA_TYPE )
-		{
-			rvalue( ctx, reg, object );
-		}
-		else
-			lvalue( ctx, reg, object );
-		rvalue( ctx, EAX, n->member_expr_data.property );
 
-		int os = data_type_operand_size( ctx, object, 0 );
-        
-		push( ctx, ESI );
-        
-		// mov esi, imm32
-		db( ctx, 0xbe );
-		dd( ctx, os );
-        
-		// imul esi
-		db( ctx, 0xf7 );
-		db( ctx, 0xee );
-        
-		pop( ctx, ESI );
-        
-		add( ctx, EBX, EAX );
-        pop(ctx, EAX);
+        switch(dn->type)
+		{
+		case AST_ARRAY_DATA_TYPE:
+		case AST_POINTER_DATA_TYPE: //only when it's a pointer to an primtive array type e.g const char * or int *
+			push(ctx, EAX);
+			if (dn->type == AST_POINTER_DATA_TYPE)
+			{
+                //should be good to go for identifiers, most of the rvalue values are still hardcoded to EAX though...
+                assert(object->type == AST_IDENTIFIER);
+				rvalue(ctx, reg, object);
+			}
+			else
+				lvalue(ctx, reg, object);
+			rvalue(ctx, EAX, n->member_expr_data.property);
+
+			int os = data_type_operand_size(ctx, object, 0);
+
+			push(ctx, ESI);
+
+			// mov esi, imm32
+			db(ctx, 0xbe);
+			dd(ctx, os);
+
+			// imul esi
+			db(ctx, 0xf7);
+			db(ctx, 0xee);
+
+			pop(ctx, ESI);
+
+			add(ctx, EBX, EAX);
+			pop(ctx, EAX);
+
+			break;
+        default:
+            debug_printf("unhandled member expr case '%s'\n", AST_NODE_TYPE_to_string(dn->type));
+            abort();
+            break;
+		}
+
 	} break;
 
 	case AST_UNARY_EXPR:
@@ -1389,6 +1544,15 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     {
         db(ctx, n->emit_data.opcode);
     } break;
+
+    case AST_STRUCT_DECL:
+    {
+        printf("struct data type!\n");
+        for(int i = 0; i < n->struct_decl_data.numfields; ++i)
+		{
+			printf("%d: %s\n", i, n->struct_decl_data.fields[i]->variable_decl_data.id->identifier_data.name);
+		}
+	} break;
         
     case AST_IF_STMT:
     {
