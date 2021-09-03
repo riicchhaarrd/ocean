@@ -116,10 +116,11 @@ int build_exe_image(struct compile_context *ctx, const char *binary_path)
 {
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;
-    
-    #define ORG (0x400000)
-	#define ALIGNMENT (0x1000)
-    
+
+#define ORG ( 0x400000 )
+#define ALIGNMENT ( 0x1000 )
+#define FILE_ALIGNMENT ( 0x200 )
+
 	struct pe_hdr pe = { 0 };
 
 	pe.sig[0] = 'P';
@@ -133,11 +134,16 @@ int build_exe_image(struct compile_context *ctx, const char *binary_path)
 	pe.size_of_optional_header = 0xe0;
 	pe.characteristics = IMAGE_FILE_32BIT_MACHINE | IMAGE_FILE_EXECUTABLE_IMAGE;
 
+    int code_size = heap_string_size(&instr);
+    code_size = align_to(code_size, FILE_ALIGNMENT);
+    int data_size = heap_string_size(&data_buf);
+    data_size = align_to(data_size,FILE_ALIGNMENT);
+
 	struct opt_hdr opt = { 0 };
 	opt.magic = 0x10b;
 	opt.major_linker_version = 0xe;
 	opt.minor_linker_version = 0x1d;
-	opt.size_of_code = 0x200;
+	opt.size_of_code = code_size;
 	opt.size_of_initialized_data = 0x400;
 	opt.size_of_initialized_data = 0x0;
 	opt.address_of_entry_point = 0x1000;
@@ -145,7 +151,7 @@ int build_exe_image(struct compile_context *ctx, const char *binary_path)
 	opt.base_of_data = 0x2000;
 	opt.image_base = ORG;
 	opt.section_alignment = ALIGNMENT;
-	opt.file_alignment = 0x200;
+	opt.file_alignment = FILE_ALIGNMENT;
 	opt.major_operating_system_version = 0x4; // or 0x6
 	opt.minor_operating_system_version = 0x0;
 	opt.major_image_version = 0x4;
@@ -183,19 +189,19 @@ int build_exe_image(struct compile_context *ctx, const char *binary_path)
 
 	struct section_hdr section = { 0 };
 	snprintf( section.name, sizeof( section.name ), ".text" );
-    section.virtual_size = 4; //instr size
-    section.virtual_address = 0x1000;
-    section.size_of_raw_data = 4;
-    section.pointer_to_raw_data = 512;
+    section.virtual_size = code_size; //instr size
+    section.virtual_address = ALIGNMENT;
+    section.size_of_raw_data = code_size;
+    section.pointer_to_raw_data = FILE_ALIGNMENT;
     section.characteristics = IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_CNT_CODE;
     buf(&image, (const char*)&section, sizeof(section));
 
-    pad_align(&image, 0x200);
-    db(&image, 0x6a);
-    db(&image, 0x7f);
-    db(&image, 0x58);
-    db(&image, 0xc3);
-    printf("pos = %d,%02X\n",heap_string_size(&image),heap_string_size(&image));
+    pad_align(&image, FILE_ALIGNMENT);
+
+	for ( int i = 0; i < code_size; ++i )
+	{
+		db( &image, instr[i] );
+	}
 
 	int filesize = heap_string_size(&image);
 	FILE * fp = fopen(binary_path, "wb");

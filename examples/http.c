@@ -78,8 +78,21 @@ int main()
     printf("bnd = %d\n", bnd);
 
     listen(sock, 5);
+	char reply[16384];
+	reply[0] = 0;
+    sprintf(reply, "HTTP/1.1 200 OK\r\n\r\nServer: http server\r\nContent-Type: text/html; charset=UTF-8\r\nhey");
+    
+	const char* html = "<h1>Hello world</h1><marquee>Test</marquee>";
+	//strcat(reply, html);
+    //print(reply);
+    
+	printf("reply = %s, len:%d\n", reply, strlen(reply));
+	/* strcat(reply, "Content-Type: text/html\r\n"); */
+	/* strcat(reply, "\r\n\r\n"); */
 
-    while(1)
+	/* strcat(reply, "Hello World"); */
+
+	while(1)
 	{
         sockaddr_in cl;
         int len = sizeof(cl);
@@ -91,8 +104,9 @@ int main()
             printf("failed to accept client\n");
             return 0;
 		}
-        const char *http_reply = "HTTP/1.1 200 OK\r\n\r\nHello";
-		write(fd, http_reply, strlen(http_reply));
+
+        
+		write(fd, reply, strlen(reply));
         shutdown(fd, SHUT_WR);
         close(fd);
 	}

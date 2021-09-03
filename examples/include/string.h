@@ -8,6 +8,26 @@ int strlen(const char *s)
     return len;
 }
 
+int strcpy(char *dst, char *src)
+{
+    //while(*dst++ = *src++);
+    while(*src)
+	{
+        *dst = *src;
+        dst++;
+        src++;
+	}
+    *dst = *src;
+	return 0;
+}
+
+int strcat(char *dst, char *src)
+{
+    int l = strlen(dst);
+    strcpy(&dst[l], src);
+    return 0;
+}
+
 int strcmp(const char *a, const char *b)
 {
     int al = strlen(a);

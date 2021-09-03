@@ -226,6 +226,58 @@ static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const c
 	linked_list_prepend( ctx->relocations, reloc );
 }
 
+static void mov_r_float(struct compile_context *ctx, enum REGISTER reg, float float_value)
+{
+    //TODO: TREAT as pointers
+    /*
+#include <stdarg.h>
+
+volatile void a(float *f)
+{
+    *f *= 3.5f;
+}
+
+int main(int argc)
+{
+    float f = (float)argc;
+
+    f += 3.14f;
+    a(&f);
+    return (int)f;
+}
+
+a:
+        mov     eax, DWORD PTR [esp+4]
+        fld     DWORD PTR .LC0
+        fmul    DWORD PTR [eax]
+        fstp    DWORD PTR [eax]
+        ret
+main:
+        sub     esp, 4
+        fild    DWORD PTR [esp+8]
+        fadd    DWORD PTR .LC2
+        fmul    DWORD PTR .LC0
+        fstp    DWORD PTR [esp]
+        cvttss2si       eax, DWORD PTR [esp]
+        add     esp, 4
+        ret
+.LC0:
+        .long   1080033280
+.LC2:
+        .long   1078523331
+    */
+    //fld dword [loc]
+	db( ctx, 0xd9);
+	db( ctx, 0x05);
+	int from = instruction_position( ctx );
+	dd( ctx, 0xcccccccc ); // placeholder
+	int to, sz;
+	sz = sizeof(float);
+	to = add_data( ctx, (void*)&float_value, sz );
+	struct relocation reloc = { .from = from, .to = to, .size = sz, .type = RELOC_DATA };
+	linked_list_prepend( ctx->relocations, reloc );
+}
+
 static void process(struct compile_context *ctx, struct ast_node *n);
 
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
@@ -598,8 +650,8 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	// TODO: fix hardcoded EBX
 	switch ( os )
 	{
-		case IMM32:
-			// mov [ebx],eax
+	case IMM32:
+		// mov [ebx],eax
 		db( ctx, 0x89 );
 		db( ctx, 0x03 );
 		break;
@@ -612,11 +664,11 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	case IMM8:
 		// mov byte ptr [ebx], al
 		db( ctx, 0x88 );
-			db( ctx, 0x03 );
-			break;
-		default:
-			debug_printf( "unhandled operand size %d\n", os );
-			exit( 1 );
+		db( ctx, 0x03 );
+		break;
+	default:
+		debug_printf( "unhandled operand size %d\n", os );
+		exit( 1 );
 		break;
 	}
 }
@@ -651,6 +703,58 @@ static int load_operand(struct compile_context *ctx, struct ast_node *n)
     return os;
 }
 
+int sizeof_operator(struct compile_context *ctx, struct ast_node *n)
+{
+    int sz = 0;
+	switch (n->sizeof_data.subject->type)
+	{
+	case AST_PRIMITIVE_DATA_TYPE:
+	case AST_POINTER_DATA_TYPE:
+	case AST_ARRAY_DATA_TYPE:
+	case AST_STRUCT_DATA_TYPE:
+		sz = data_type_size(ctx, n->sizeof_data.subject);
+		break;
+	case AST_IDENTIFIER:
+	{
+		struct variable* var = hash_map_find(ctx->function->variables, n->sizeof_data.subject->identifier_data.name);
+		assert(var);
+		sz = data_type_size(ctx, var->data_type_node);
+	}
+	break;
+	case AST_UNARY_EXPR:
+	{
+		switch (n->sizeof_data.subject->unary_expr_data.operator)
+		{
+		case '*':
+        {
+			switch (n->sizeof_data.subject->unary_expr_data.argument->type)
+			{
+			case AST_POINTER_DATA_TYPE:
+				sz = data_type_size(ctx, n->sizeof_data.subject->unary_expr_data.argument->pointer_data_type_data.data_type);
+			case AST_IDENTIFIER:
+            {
+                struct ast_node *idn = identifier_data_node(ctx, n->sizeof_data.subject->unary_expr_data.argument);
+                sz = data_type_size(ctx, idn->pointer_data_type_data.data_type);
+            } break;
+			default:
+				return 0;
+			}
+		}
+		break;
+		default:
+			debug_printf("unhandled sizeof for unary expression '%s'\n",
+						 token_type_to_string(n->sizeof_data.subject->unary_expr_data.operator));
+			break;
+		}
+	}
+	break;
+	default:
+		debug_printf("unhandled sizeof '%s'\n", AST_NODE_TYPE_to_string(n->sizeof_data.subject->type));
+		break;
+	}
+    return sz;
+}
+
 int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 {
     //printf("rvalue node '%s'\n", AST_NODE_TYPE_to_string(n->type));
@@ -663,6 +767,9 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 		case LITERAL_INTEGER:
             mov_r_imm32(ctx, reg, n->literal_data.integer);
 			break;
+        case LITERAL_FLOAT:
+            mov_r_float(ctx, reg, n->literal_data.flt);
+            break;
 		case LITERAL_STRING:
 		{
             mov_r_string(ctx, reg, n->literal_data.string);
@@ -1003,26 +1110,7 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 
 	case AST_SIZEOF:
 	{
-        int sz = 0;
-        switch(n->sizeof_data.subject->type)
-		{
-        case AST_PRIMITIVE_DATA_TYPE:
-        case AST_POINTER_DATA_TYPE:
-        case AST_ARRAY_DATA_TYPE:
-        case AST_STRUCT_DATA_TYPE:
-			sz = data_type_size( ctx, n->sizeof_data.subject );
-			break;
-		case AST_IDENTIFIER:
-		{
-            struct variable *var = hash_map_find(ctx->function->variables, n->sizeof_data.subject->identifier_data.name);
-			assert( var );
-			sz = data_type_size( ctx, var->data_type_node );
-		}
-		break;
-		default:
-            debug_printf("unhandled sizeof '%s'\n", AST_NODE_TYPE_to_string(n->sizeof_data.subject->type));
-            break;
-		}
+        int sz = sizeof_operator(ctx, n);
         assert(sz>0);
 
         //mov eax,imm32
