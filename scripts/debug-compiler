@@ -1,0 +1,2 @@
+#!/bin/bash
+./build && gdb ./ocean -ex run\ $1\ -d\ bin/example.elf
