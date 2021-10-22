@@ -6,9 +6,12 @@
 #include "compile.h"
 #include "rhd/linked_list.h"
 #include "util.h"
+#include "std.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+
+extern int opt_flags;
 
 int build_memory_image(struct compile_context *ctx, const char *binary_path)
 {
@@ -17,9 +20,6 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
 
     //TODO: FIXME change hardcoded x86 to x64 or other arch later
 #define ALIGNMENT (0x1000)
-
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
 
     //TODO: allocate N bytes of size instr and align it to page size
     //TODO: make seperate data buffer and make it non-executable
@@ -44,11 +44,13 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
             if (it->type == RELOC_DATA)
             {
                 *(u32*)&buffer[it->from] = it->to + data_offs;
+                if (opt_flags & OPT_VERBOSE)
                 printf("[DATA] relocating %d bytes from %02X to %02X\n", it->size, it->from, it->to + data_offs);
             }
             else if (it->type == RELOC_CODE)
             {
                 *(u32*)&buffer[it->from] = it->to + code_offs;
+                if (opt_flags & OPT_VERBOSE)
                 printf("[CODE] relocating %d bytes from %02X to %02X\n", it->size, it->from, it->to + code_offs);
             }
             else if (it->type == RELOC_IMPORT)
@@ -57,6 +59,7 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
                 intptr_t realcodepos = code_offs + it->from;
                 *(u32*)&buffer[it->from] = realcodepos + 6;
                 *(u32*)&buffer[it->from + 6] = sym->offset;
+                if (opt_flags & OPT_VERBOSE)
                 printf("[IMPORT] relocating %d bytes\n", it->size);
             }
             else
@@ -68,6 +71,7 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
     VirtualProtect(buffer, sztotal, PAGE_EXECUTE_READ, &dummy);
     int (__cdecl *fn)(void) = (int(__cdecl *)(void))buffer;
     int result = fn();
+    if (opt_flags & OPT_VERBOSE)
     printf("result: %d\n", result);
     VirtualFree(buffer, 0, MEM_RELEASE);
 	return 0;

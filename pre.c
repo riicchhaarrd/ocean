@@ -281,7 +281,7 @@ static int handle_token( struct pre_context *ctx, heap_string* preprocessed, str
 
 			heap_string locatedincludepath = locate_include_file( ctx, includepath );
             struct hash_map *defines = NULL;
-			heap_string includedata = preprocess_file( locatedincludepath, ctx->includepaths, ctx->verbose, ctx->identifiers , &defines );
+			heap_string includedata = preprocess_file( locatedincludepath ? locatedincludepath : includepath, ctx->includepaths, ctx->verbose, ctx->identifiers , &defines );
             //TODO: FIXME free current defines
             ctx->identifiers = defines;
 			heap_string_free( &locatedincludepath );

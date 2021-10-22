@@ -80,23 +80,6 @@ struct dynlib_sym* find_lib_symbol(void *userptr, const char* key)
 
 int main( int argc, char** argv )
 {
-#if 0
-	HMODULE lib1 = LoadLibraryA("kernel32.dll");
-	FARPROC proc = GetProcAddress(lib1, "GetProcAddress");
-	FARPROC(__stdcall * proto)(HMODULE, LPCSTR);
-	*(int*)&proto = proc;
-
-	void (__stdcall*_GetSystemInfo)(LPSYSTEM_INFO);
-	*(int*)&_GetSystemInfo = proto(lib1, "GetSystemInfo");
-	SYSTEM_INFO si;
-	_GetSystemInfo(&si);
-	printf("numcpu=%d\n", si.dwNumberOfProcessors);
-	
-	printf("proc=%02X\n", proc);
-
-	return 0;
-#endif
-
     assert(argc > 0);
 	assert(argc < 32);
     const char *files[32];
@@ -121,9 +104,13 @@ int main( int argc, char** argv )
                 //mainly used atm for inserting int3 breakpoints
 				opt_flags |= OPT_DEBUG;
 				break;
+			case 'v':
+				opt_flags |= OPT_VERBOSE;
+				break;
 			case 'b':
 			{
 				const char* build_target_str = (const char*)&argv[i][2];
+				if(opt_flags & OPT_VERBOSE)
 				printf( "using build target: %s\n", build_target_str);
 				if (!strcmp(build_target_str, "windows"))
 					build_target = BT_WINDOWS;
@@ -131,6 +118,7 @@ int main( int argc, char** argv )
 					build_target = BT_LINUX;
 				else if (!strcmp(build_target_str, "memory"))
 					build_target = BT_MEMORY;
+				if (opt_flags & OPT_VERBOSE)
 				printf("build_target = %d\n", build_target);
 			}
 			break;
@@ -144,6 +132,7 @@ int main( int argc, char** argv )
 					//printf("\tsym: %s\n", it->sym_name);
 					++nsymbols;
 				});
+				if (opt_flags & OPT_VERBOSE)
 				printf("linking against '%s', found %d symbols.\n", lib_name, nsymbols - nsymbols_old);
 			}
 			break;
@@ -151,6 +140,7 @@ int main( int argc, char** argv )
 		}
 		else
 		{
+			if (opt_flags & OPT_VERBOSE)
 			printf("adding %s\n", argv[i]);
 			files[numfiles++] = argv[i];
 		}
@@ -160,6 +150,7 @@ int main( int argc, char** argv )
     //TODO: multiple source files
 	const char* src = files[numfiles - 2];
 	const char* dst = files[numfiles - 1];
+	if (opt_flags & OPT_VERBOSE)
     printf("src: %s, dst: %s\n", src, dst);
     
     /* pre.c */
@@ -221,6 +212,7 @@ int main( int argc, char** argv )
 					ret = build_memory_image(&ctx, dst);
 					break;
 				}
+				if (opt_flags & OPT_VERBOSE)
 				printf( "building image '%s' (return code = %d)\n", dst, ret );
 			} else
 			{
