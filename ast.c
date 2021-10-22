@@ -944,6 +944,7 @@ static struct ast_node* for_statement( struct ast_context* ctx )
 {
 	ast_expect( ctx, '(', "expected ( after for" );
 	struct ast_node *init, *test, *update;
+	init = test = update = NULL;
 
 	if ( ast_accept( ctx, ';' ) )
 	{
@@ -1108,12 +1109,16 @@ static struct ast_node *program(struct ast_context *ctx)
 
 		ast_expect( ctx, ')', "expected ) after function" );
 
-		struct ast_node* block_node;
-        statement_node(ctx, &block_node);
-        ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
-		decl->func_decl_data.body = block_node;
+		struct ast_node* block_node = NULL;
+		//check if it's just a forward decl
+		if (ast_accept(ctx, ';'))
+		{
+			statement_node(ctx, &block_node);
+			ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
+		}
 		linked_list_prepend( program_node->program_data.body, decl );
         ctx->function = NULL;
+		decl->func_decl_data.body = block_node;
 	}
     return program_node;
 }

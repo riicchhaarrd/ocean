@@ -62,14 +62,14 @@ static void buf(struct compile_context *ctx, const char *buf, size_t len)
     }
 }
 
-int get_function_position(struct compile_context *ctx, const char *name)
+struct function* lookup_function_by_name(struct compile_context *ctx, const char *name)
 {    
     linked_list_reversed_foreach(ctx->functions, struct function*, it,
     {
         if(!strcmp(it->name, name))
-            return it->location;
+            return it;
     });
-    return -1;
+    return NULL;
 }
 
 static int primitive_data_type_size(int type)
@@ -228,25 +228,144 @@ static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const c
 
 static void process(struct compile_context *ctx, struct ast_node *n);
 
+typedef enum
+{
+    FUNCTION_CALL_NOT_FOUND,
+    FUNCTION_CALL_IMPORT_NOT_FOUND,
+    FUNCTION_CALL_NORMAL,
+    FUNCTION_CALL_IMPORT,
+    FUNCTION_CALL_SYSCALL,
+    FUNCTION_CALL_INT3
+} FUNCTION_CALL_TYPE;
+
+static FUNCTION_CALL_TYPE identify_function_call_type(struct compile_context* ctx, const char* function_name, /*avoid looking up the symbols multiple times when we don't have to */struct function **fn_out, struct dynlib_sym** sym_out)
+{
+    if (!strcmp(function_name, "int3"))
+        return FUNCTION_CALL_INT3;
+
+    if (!strcmp(function_name, "syscall") && ctx->build_target == BT_LINUX)
+        return FUNCTION_CALL_SYSCALL;
+
+    struct function *fn = lookup_function_by_name(ctx, function_name);
+    if (fn)
+    {
+        *fn_out = fn;
+        if (fn->location != -1)
+            return FUNCTION_CALL_NORMAL;
+        struct dynlib_sym* sym = ctx->find_import_fn(ctx->find_import_fn_userptr, function_name);
+        if (sym)
+        {
+            *sym_out = sym;
+            return FUNCTION_CALL_IMPORT;
+        }
+        return FUNCTION_CALL_IMPORT_NOT_FOUND;
+    }
+
+    return FUNCTION_CALL_NOT_FOUND;
+}
+
 static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
-    //printf("func call %s\n", function_name);
-    if(!strcmp(function_name, "syscall") && ctx->build_target == BT_LINUX)
+    struct function *fn;
+    struct dynlib_sym* sym;
+    int rvalue(struct compile_context* ctx, enum REGISTER reg, struct ast_node* n);
+
+    FUNCTION_CALL_TYPE function_call_type = identify_function_call_type(ctx, function_name, &fn, &sym);
+    switch (function_call_type)
     {
-        int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
+    default:
+        printf("invalid function call, got result %d\n", function_call_type);
+        db(ctx, 0xcc);
+        db(ctx, 0xcc);
+        db(ctx, 0xcc);
+        return 1;
+        break;
+
+    case FUNCTION_CALL_IMPORT:
+    {
+        //TODO: FIXME make it work for building exe files aswell, e.g proper IAT thunk table
+        for (int i = 0; i < numargs; ++i)
+        {
+            process(ctx, args[numargs - i - 1]);
+            //push eax
+            db(ctx, 0x50);
+        }
+
+        //db(ctx, 0xcc);
+
+        db(ctx, 0xff);
+        db(ctx, 0x15);
+        int from = instruction_position(ctx);
+        dd(ctx, 0x0); //pointer to location P
+        
+        //jmp 6
+        db(ctx, 0xeb);
+        db(ctx, 0x04);
+
+        //location P
+        //actual location of imported function
+        dd(ctx, 0x0);
+
+        //db(ctx, 0xcc);
+
+        if (numargs > 0)
+        {
+            // add esp, 4
+            db(ctx, 0x83);
+            db(ctx, 0xc4);
+            db(ctx, numargs * 4);
+        }
+
+        struct relocation reloc = {
+            .from = from,
+            .to = (intptr_t)sym,
+            .size = 4,
+            .type = RELOC_IMPORT
+        };
+        linked_list_prepend(ctx->relocations, reloc);
+    } break;
+
+    case FUNCTION_CALL_INT3:
+        if (opt_flags & OPT_DEBUG)
+            db(ctx, 0xcc); //int3
+        break;
+
+    case FUNCTION_CALL_NORMAL:
+    {
+        for (int i = 0; i < numargs; ++i)
+        {
+            process(ctx, args[numargs - i - 1]);
+            //push eax
+            db(ctx, 0x50);
+        }
+
+        int t = instruction_position(ctx);
+        db(ctx, 0xe8);
+        dd(ctx, fn->location - t - 5);
+
+        if (numargs > 0)
+        {
+            // add esp, 4
+            db(ctx, 0x83);
+            db(ctx, 0xc4);
+            db(ctx, numargs * 4);
+        }
+    } break;
+
+    case FUNCTION_CALL_SYSCALL:
         assert(numargs > 0);
 
-        for(int i = 0; i < 6 - numargs; ++i)
-		{
-			xor( ctx, EAX, EAX );
-			push( ctx, EAX );
-		}
-		for(int i = 0; i < numargs; ++i)
-		{
-			rvalue( ctx, EAX, args[numargs-i-1] );
-			push( ctx, EAX );
-		}
-        
+        for (int i = 0; i < 6 - numargs; ++i)
+        {
+            xor (ctx, EAX, EAX);
+            push(ctx, EAX);
+        }
+        for (int i = 0; i < numargs; ++i)
+        {
+            rvalue(ctx, EAX, args[numargs - i - 1]);
+            push(ctx, EAX);
+        }
+
         //TODO: FIXME arg5 (%ebp) is on the stack //ebp
         pop(ctx, EAX);
         pop(ctx, EBX);
@@ -257,49 +376,16 @@ static int function_call_ident(struct compile_context *ctx, const char *function
 
         /*
         for(int i = 0; i < numargs; ++i)
-		{
+        {
             printf("arg%d=%s (var=%s)\n",i,AST_NODE_TYPE_to_string(args[i]->type),args[i]->type==AST_IDENTIFIER?args[i]->identifier_data.name : "[n/a]");
-		}
+        }
         */
 
-		db(ctx, 0xcd); //int 0x80
+        db(ctx, 0xcd); //int 0x80
         db(ctx, 0x80);
-        return 0;
-    } else if(!strcmp(function_name, "int3"))
-	{
-        if(opt_flags & OPT_DEBUG)
-        db(ctx, 0xcc); //int3
-        return 0;
-	}
-
-    int pos = get_function_position(ctx, function_name);
-    if(pos == -1)
-    {
-        db(ctx, 0xcc);
-        db(ctx, 0xcc);
-        db(ctx, 0xcc);
-		return 1;
+        break;
     }
-
-	for(int i = 0; i < numargs; ++i)
-    {
-		process( ctx, args[numargs-i-1] );
-        //push eax
-        db(ctx, 0x50);
-    }
-    
-    int t = instruction_position(ctx);
-    db(ctx, 0xe8);
-    dd(ctx, pos - t - 5);
-
-    if(numargs > 0)
-	{
-		// add esp, 4
-		db( ctx, 0x83 );
-		db( ctx, 0xc4 );
-		db( ctx, numargs * 4 );
-	}
-	return 0;
+    return 0;
 }
 
 static int function_variable_declaration_stack_size( struct compile_context* ctx, struct ast_node* n )
@@ -1616,68 +1702,91 @@ static void process(struct compile_context *ctx, struct ast_node *n)
     //TODO: implement this properly
     case AST_FUNCTION_DECL:
     {
-        if(!strcmp(n->func_decl_data.id->identifier_data.name, "main"))
-		{
-            //printf("set entry call to 0x%02X (%d)\n", instruction_position( ctx ), instruction_position( ctx ));
-			ctx->entry = instruction_position( ctx );
-		}
-        int loc = instruction_position( ctx );
-        struct function func = {
-            .location = loc,
-            .name = n->func_decl_data.id->identifier_data.name,
-            .localvariablesize = 0,
-            .variables = hash_map_create(struct variable)
-        };
-        ctx->function = linked_list_prepend(ctx->functions, func);
-        int offset = 0;
-        for(int i = 0; i < n->func_decl_data.numparms; ++i)
-		{
-            struct ast_node *parm = n->func_decl_data.parameters[i];
-            assert(parm->type == AST_VARIABLE_DECL);
-            
-            offset += data_type_size(ctx, parm->variable_decl_data.data_type);
-            
-            struct variable tv = {
-                    .offset = offset,
-                    .is_param = 1,
-                    .data_type_node = parm->variable_decl_data.data_type
+        int loc = instruction_position(ctx);
+        if (n->func_decl_data.body) //no body means just a empty declaration, so ignore creating opcodes for it
+        {
+            if (!strcmp(n->func_decl_data.id->identifier_data.name, "main"))
+            {
+                //printf("set entry call to 0x%02X (%d)\n", instruction_position( ctx ), instruction_position( ctx ));
+                ctx->entry = instruction_position(ctx);
+            }
+            struct function func = {
+                .location = loc,
+                .name = n->func_decl_data.id->identifier_data.name,
+                .localvariablesize = 0,
+                .variables = hash_map_create(struct variable)
             };
-            
-            assert(parm->variable_decl_data.id->type == AST_IDENTIFIER);
-            hash_map_insert(ctx->function->variables, parm->variable_decl_data.id->identifier_data.name, tv);
-		}
-        assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
-        //int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
-        int localsize = function_variable_declaration_stack_size(ctx, n);
-        //push ebp
-        //mov ebp, esp
-        db(ctx, 0x55);
-        db(ctx, 0x89);
-        db(ctx, 0xe5);
-        
-        //allocate some space
+            ctx->function = linked_list_prepend(ctx->functions, func);
+            int offset = 0;
+            for (int i = 0; i < n->func_decl_data.numparms; ++i)
+            {
+                struct ast_node* parm = n->func_decl_data.parameters[i];
+                assert(parm->type == AST_VARIABLE_DECL);
 
-        //sub esp, 4
-        //works for < 0xff
-        //db(ctx, 0x83);
-        //db(ctx, 0xec);
-        //db(ctx, 0x04);
+                offset += data_type_size(ctx, parm->variable_decl_data.data_type);
 
-        //sub esp, imm32
-        db(ctx, 0x81);
-        db(ctx, 0xec);
-        dd(ctx, localsize);
-        
-        process(ctx, n->func_decl_data.body);
-        
-		//mov esp,ebp
-        //pop ebp
-        db(ctx, 0x89);
-        db(ctx, 0xec);
-        db(ctx, 0x5d);
-        
-        //ret
-        db(ctx, 0xc3);
+                struct variable tv = {
+                        .offset = offset,
+                        .is_param = 1,
+                        .data_type_node = parm->variable_decl_data.data_type
+                };
+
+                assert(parm->variable_decl_data.id->type == AST_IDENTIFIER);
+                hash_map_insert(ctx->function->variables, parm->variable_decl_data.id->identifier_data.name, tv);
+            }
+            assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
+            //int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
+            int localsize = function_variable_declaration_stack_size(ctx, n);
+            //push ebp
+            //mov ebp, esp
+            db(ctx, 0x55);
+            db(ctx, 0x89);
+            db(ctx, 0xe5);
+
+            //allocate some space
+
+            //sub esp, 4
+            //works for < 0xff
+            //db(ctx, 0x83);
+            //db(ctx, 0xec);
+            //db(ctx, 0x04);
+
+            //sub esp, imm32
+            db(ctx, 0x81);
+            db(ctx, 0xec);
+            dd(ctx, localsize);
+
+            process(ctx, n->func_decl_data.body);
+
+            //mov esp,ebp
+            //pop ebp
+            db(ctx, 0x89);
+            db(ctx, 0xec);
+            db(ctx, 0x5d);
+
+            //ret
+            db(ctx, 0xc3);
+        }
+        else
+        {
+            const char* function_name = n->func_decl_data.id->identifier_data.name;
+            struct dynlib_sym* sym = ctx->find_import_fn(ctx->find_import_fn_userptr, function_name);
+            if (!sym)
+            {
+                printf("unable to find function '%s' for import\n", function_name);
+                return 1;
+            }
+
+            //just add it as import function, that needs to be resolved later
+            struct function func = {
+                .location = -1,
+                .name = n->func_decl_data.id->identifier_data.name,
+                .localvariablesize = 0,
+                .variables = hash_map_create(struct variable)
+            };
+            ctx->function = NULL;
+            linked_list_prepend(ctx->functions, func);
+        }
     } break;
     
     case AST_BLOCK_STMT:
@@ -1887,7 +1996,19 @@ int x86(struct ast_node *head, struct compile_context *ctx)
 
     memset(ctx->registers, 0, sizeof(ctx->registers));
     ctx->scope_index = 0;
-    
+
+    switch (ctx->build_target)
+    {
+    case BT_MEMORY:
+        //so we can just call <buf_loc>
+        //push ebp
+        //mov ebp, esp
+        db(ctx, 0x55);
+        db(ctx, 0x89);
+        db(ctx, 0xe5);
+        break;
+    }
+
     //mov eax,imm32
     db(ctx, 0xb8);
     int from = instruction_position(ctx);
@@ -1896,20 +2017,42 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     //call eax
     db(ctx, 0xff);
     db(ctx, 0xd0);
-    
-    //insert linux syscall exit
-    //mov ebx, eax
-    db(ctx, 0x89);
-    db(ctx, 0xc3);
-    //xor ebx,ebx
-    //db(ctx, 0x31);
-    //db(ctx, 0xdb);
-    
-    db(ctx, 0x31); //xor eax,eax
-    db(ctx, 0xc0);
-    db(ctx, 0x40); //inc eax
-    db(ctx, 0xcd); //int 0x80
-    db(ctx, 0x80);
+
+    switch (ctx->build_target)
+    {
+    case BT_LINUX:
+        //insert linux syscall exit
+        //mov ebx, eax
+        db(ctx, 0x89);
+        db(ctx, 0xc3);
+        //xor ebx,ebx
+        //db(ctx, 0x31);
+        //db(ctx, 0xdb);
+
+        db(ctx, 0x31); //xor eax,eax
+        db(ctx, 0xc0);
+        db(ctx, 0x40); //inc eax
+        db(ctx, 0xcd); //int 0x80
+        db(ctx, 0x80);
+        break;
+
+    case BT_MEMORY:
+
+        //mov esp,ebp
+        //pop ebp
+        db(ctx, 0x89);
+        db(ctx, 0xec);
+        db(ctx, 0x5d);
+
+        //ret
+        db(ctx, 0xc3);
+        break;
+
+    default:
+        perror("unhandled bt");
+        break;
+    }
+
     
     process(ctx, head);
     

@@ -141,7 +141,7 @@ struct ast_function_decl
     struct ast_node *id;
     struct ast_node *parameters[32];
     int numparms;
-    struct ast_node *body;
+    struct ast_node *body; //no body means just forward declaration, just prototype function
     struct ast_node *return_data_type;
     int variadic;
     //TODO: access same named variables in different scopes
@@ -235,6 +235,7 @@ struct ast_break_stmt
 {
     //maybe add break level, nested loops
     //keep track of which loop node we're in maybe
+    int unused;
 };
 
 struct ast_seq_expr

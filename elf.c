@@ -7,7 +7,7 @@
 #include "rhd/linked_list.h"
 #include "util.h"
 
-struct __attribute__((__packed__)) phdr32
+PACK(struct phdr32
 {
     i32 p_type;
     u32 p_offset;
@@ -17,7 +17,7 @@ struct __attribute__((__packed__)) phdr32
     u32 p_memsz;
     i32 p_flags;
     u32 p_align;
-};
+});
 
 enum
 {
@@ -186,10 +186,13 @@ int build_elf_image(struct compile_context *ctx, const char *binary_path)
     }
     
     size_t filesize = heap_string_size(&image);
-    FILE * fp = fopen(binary_path, "wb");
+    FILE* fp;
+    fopen_s(&fp, binary_path, "wb");
     if(!fp)
     {
-        printf("failed to open '%s', error = %s\n", binary_path, strerror(errno));
+        char errorMessage[1024];
+        strerror_s(errorMessage, sizeof(errorMessage), errno);
+        printf("failed to open '%s', error = %s\n", binary_path, errorMessage);
         return 1;
     }
     fwrite(image, filesize, 1, fp);

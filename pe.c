@@ -24,7 +24,7 @@
 #define IMAGE_DLLCHARACTERISTICS_NO_SEH (0x0400)
 #define IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE (0x8000)
 
-struct __attribute__((__packed__)) pe_hdr
+PACK(struct pe_hdr
 {
     u8 sig[4]; //pe\0\0
     u16 machine; //IMAGE_FILE_MACHINE_I386
@@ -33,13 +33,13 @@ struct __attribute__((__packed__)) pe_hdr
     u8 pad[8]; //deprecated
     u16 size_of_optional_header; //0xe0
     u16 characteristics; //IMAGE_FILE_32BIT_MACHINE | IMAGE_FILE_EXECUTABLE_IMAGE
-};
+});
 
-struct __attribute__((__packed__)) data_dir
+PACK(struct data_dir
 {
     u32 rva;
     u32 sz;
-};
+});
 
 enum data_dir_type
 {
@@ -59,7 +59,7 @@ enum data_dir_type
     DDT_DELAY_IMPORT
 };
 
-struct __attribute__((__packed__)) opt_hdr
+PACK(struct opt_hdr
 {
     u16 magic; //0x10b
     u8 major_linker_version; //0xe
@@ -92,13 +92,13 @@ struct __attribute__((__packed__)) opt_hdr
     u32 loader_flags; //0x0
     u32 number_of_rva_and_sizes; //0x10
     struct data_dir dir[16];
-};
+});
 
 #define IMAGE_SCN_MEM_EXECUTE ( 0x20000000 )
 #define IMAGE_SCN_MEM_READ ( 0x40000000 )
 #define IMAGE_SCN_CNT_CODE ( 0x00000020 )
 
-struct __attribute__((__packed__)) section_hdr
+PACK(struct section_hdr
 {
     char name[8];
     u32 virtual_size;
@@ -110,7 +110,7 @@ struct __attribute__((__packed__)) section_hdr
     u16 number_of_relocations;
     u16 number_of_linenumbers;
     u32 characteristics;
-};
+});
 
 int build_exe_image(struct compile_context *ctx, const char *binary_path)
 {
@@ -198,10 +198,13 @@ int build_exe_image(struct compile_context *ctx, const char *binary_path)
     printf("pos = %d,%02X\n",heap_string_size(&image),heap_string_size(&image));
 
 	int filesize = heap_string_size(&image);
-	FILE * fp = fopen(binary_path, "wb");
+    FILE* fp;
+    fopen_s(&fp, binary_path, "wb");
     if(!fp)
     {
-        printf("failed to open '%s', error = %s\n", binary_path, strerror(errno));
+        char errorMessage[1024];
+        strerror_s(errorMessage, sizeof(errorMessage), errno);
+        printf("failed to open '%s', error = %s\n", binary_path, errorMessage);
         return 1;
     }
     fwrite(image, filesize, 1, fp);

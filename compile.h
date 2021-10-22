@@ -4,6 +4,7 @@
 #include "types.h"
 #include "rhd/heap_string.h"
 #include "data_type.h"
+#include "rhd/hash_string.h"
 
 enum REGISTER
 {
@@ -48,23 +49,35 @@ struct scope
 enum RELOC_TYPE
 {
     RELOC_CODE,
-    RELOC_DATA
+    RELOC_DATA,
+    RELOC_IMPORT
 };
 
 struct relocation
 {
     enum RELOC_TYPE type;
-    int size;
-    int from;
-    int to;
+    size_t size;
+    intptr_t from;
+    intptr_t to;
 };
 
 enum BUILD_TARGET
 {
     BT_UNKNOWN,
     BT_LINUX,
-    BT_WINDOWS
+    BT_WINDOWS,
+    BT_MEMORY
 };
+
+struct dynlib_sym
+{
+    const char* lib_name;
+    const char* sym_name;
+    intptr_t offset; //TODO: FIXME if and when we ever compile for cross platform or x86/x64 this should probably be changed to match the target binary format.
+    hash_t hash;
+};
+
+typedef struct dynlib_sym* (*find_import_fn_t)(void *userptr, const char *key);
 
 struct compile_context
 {
@@ -82,5 +95,8 @@ struct compile_context
     intptr_t registers[8];
     struct scope *scope[16]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
+
+    void* find_import_fn_userptr;
+    find_import_fn_t find_import_fn;
 };
 #endif
