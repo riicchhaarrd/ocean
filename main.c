@@ -20,7 +20,7 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include <windows.h>
 #pragma comment(lib, "kernel32.lib")
 #endif
 
@@ -84,9 +84,20 @@ int main( int argc, char** argv )
 	assert(argc < 32);
     const char *files[32];
     int numfiles = 0;
-	int build_target = BT_UNKNOWN;
+	//use build target memory as default
+	int build_target = BT_MEMORY;
 	struct linked_list* symbols = linked_list_create(struct dynlib_sym);
 	size_t nsymbols = 0;
+	
+	#ifdef _WIN32
+	//link some commonly used libraries by default
+	//TODO: FIXME relocate this
+	read_symbols_for_dynamic_library("msvcrt.dll", &symbols);
+	read_symbols_for_dynamic_library("kernel32.dll", &symbols);
+	read_symbols_for_dynamic_library("user32.dll", &symbols);
+	read_symbols_for_dynamic_library("opengl32.dll", &symbols);
+	#endif
+	
 	for ( int i = 1; i < argc; ++i )
 	{
 		if ( argv[i][0] == '-' )
@@ -145,11 +156,11 @@ int main( int argc, char** argv )
 			files[numfiles++] = argv[i];
 		}
 	}
-    assert(numfiles > 1);
-    //need atleast 1 source and 1 output file
     //TODO: multiple source files
-	const char* src = files[numfiles - 2];
-	const char* dst = files[numfiles - 1];
+	const char* src = files[numfiles > 1 ? numfiles - 2 : numfiles - 1];
+	const char* dst = NULL;
+	if(build_target != BT_MEMORY)
+		dst = files[numfiles - 1];
 	if (opt_flags & OPT_VERBOSE)
     printf("src: %s, dst: %s\n", src, dst);
     
@@ -230,5 +241,6 @@ int main( int argc, char** argv )
     	linked_list_destroy(&ast_list);
     }
     free(tokens);
+	//getchar();
     return 0;
 }

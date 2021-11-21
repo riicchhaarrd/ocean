@@ -4,6 +4,7 @@
 #include <errno.h>
 
 #include "compile.h"
+#include "rhd/std.h"
 #include "rhd/linked_list.h"
 #include "util.h"
 
@@ -187,11 +188,11 @@ int build_elf_image(struct compile_context *ctx, const char *binary_path)
     
     size_t filesize = heap_string_size(&image);
     FILE* fp;
-    fopen_s(&fp, binary_path, "wb");
+    std_fopen_s(&fp, binary_path, "wb");
     if(!fp)
     {
         char errorMessage[1024];
-        strerror_s(errorMessage, sizeof(errorMessage), errno);
+        std_strerror_s(errorMessage, sizeof(errorMessage), errno);
         printf("failed to open '%s', error = %s\n", binary_path, errorMessage);
         return 1;
     }

@@ -226,7 +226,7 @@ static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const c
 	linked_list_prepend( ctx->relocations, reloc );
 }
 
-static void process(struct compile_context *ctx, struct ast_node *n);
+static int process(struct compile_context *ctx, struct ast_node *n);
 
 typedef enum
 {
@@ -684,8 +684,8 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	// TODO: fix hardcoded EBX
 	switch ( os )
 	{
-		case IMM32:
-			// mov [ebx],eax
+	case IMM32:
+		// mov [ebx],eax
 		db( ctx, 0x89 );
 		db( ctx, 0x03 );
 		break;
@@ -698,11 +698,19 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	case IMM8:
 		// mov byte ptr [ebx], al
 		db( ctx, 0x88 );
-			db( ctx, 0x03 );
-			break;
-		default:
-			debug_printf( "unhandled operand size %d\n", os );
-			exit( 1 );
+		db( ctx, 0x03 );
+		break;
+	default:
+		//TODO: FIXME throw a proper error
+		//ran into issue with
+		//void *buffer = malloc(n);
+		//where buffer[offset] = 0;
+		//resulted in a error with operand size of 0
+		//because void operand size is 0
+		//and the above doesn't make sense
+		//preferably with a node token / source line file debug information
+		debug_printf( "unhandled operand size %d for node '%s'\n", os, AST_NODE_TYPE_to_string(n->type));
+		exit( 1 );
 		break;
 	}
 }
@@ -1637,7 +1645,7 @@ static void exit_scope(struct compile_context *ctx)
     ctx->scope[ctx->scope_index] = NULL;
 }
 
-static void process(struct compile_context *ctx, struct ast_node *n)
+static int process(struct compile_context *ctx, struct ast_node *n)
 {
     switch(n->type)
     {

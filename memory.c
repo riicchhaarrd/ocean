@@ -8,8 +8,10 @@
 #include "util.h"
 #include "std.h"
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include <windows.h>
+#endif
 
 extern int opt_flags;
 
@@ -18,11 +20,16 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;
 
+#ifdef _WIN32
+
     //TODO: FIXME change hardcoded x86 to x64 or other arch later
 #define ALIGNMENT (0x1000)
 
     //TODO: allocate N bytes of size instr and align it to page size
     //TODO: make seperate data buffer and make it non-executable
+
+	SYSTEM_INFO si;
+	GetSystemInfo(&si);
 
     u32 il = heap_string_size(&instr);
     size_t dl = heap_string_size(&data_buf);
@@ -74,5 +81,8 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
     if (opt_flags & OPT_VERBOSE)
     printf("result: %d\n", result);
     VirtualFree(buffer, 0, MEM_RELEASE);
+	#else
+		perror("unsupported\n");
+	#endif
 	return 0;
 }

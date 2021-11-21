@@ -49,13 +49,19 @@ static void ast_assert_r(struct ast_context *ctx, int expr, const char *expr_str
 #define ast_assert(ctx, expr, ...) \
     ast_assert_r(ctx, (intptr_t)expr, #expr, ## __VA_ARGS__)
 
-static void ast_error(struct ast_context *ctx, const char *fmt, ...)
+
+#define ast_error(ctx, fmt, ...) \
+	ast_error_r(ctx, __LINE__, __FILE__, fmt, ## __VA_ARGS__)
+
+static void ast_error_r(struct ast_context *ctx, int lineno, const char *file, const char *fmt, ...)
 {
 	char buffer[512] = { 0 };
     va_list va;
     va_start(va, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, va);
-    debug_printf("ast error: %s\n", buffer);
+	const char *func_name = ctx->function ? ctx->function->func_decl_data.id->identifier_data.name : NULL;
+    struct token *tk = parse_token(&ctx->parse_context);
+    printf("AST Error: %s at line number %d in function '%s'.\n", buffer, tk->lineno, func_name);
     va_end(va);
     
     longjmp(ctx->jmp, 1);
@@ -66,13 +72,14 @@ static void ast_expect_r(struct ast_context *ctx, int type, int lineno, const ch
     struct token *tk = ctx->parse_context.current_token;
     if(!ast_accept(ctx, type))
         return;
+	const char *func_name = ctx->function ? ctx->function->func_decl_data.id->identifier_data.name : NULL;
     
 	char buffer[512] = { 0 };
     va_list va;
     va_start(va, fmt);
     vsnprintf(buffer, sizeof(buffer), fmt, va);
     //TODO: print last 5-10 nodes that were pushed for more debug info
-    debug_printf("[%d] syntax error: expected token '%s' got '%s' at line %d, last_node = '%s'\n%s\n", lineno, token_type_to_string(type), tk ? token_type_to_string(tk->type) : "null", tk->lineno, AST_NODE_TYPE_to_string(ctx->last_node->type), buffer);
+    debug_printf("Syntax Error: expected token '%s' got '%s' message: '%s' at line %d in function '%s'.\n", token_type_to_string(type), tk ? token_type_to_string(tk->type) : "null", buffer, tk->lineno, func_name);
     va_end(va);
     
     longjmp(ctx->jmp, 1);
@@ -569,12 +576,16 @@ static void print_tabs(int n)
 
 static void set_print_color(int n)
 {
-    printf("\x1B[%dm", 31 + (n % 7));
+	#ifndef _WIN32
+		printf("\x1B[%dm", 31 + (n % 7));
+	#endif
 }
 
 static void reset_print_color()
 {
-    printf("\x1B[0m");
+	#ifndef _WIN32
+		printf("\x1B[0m");
+	#endif
 }
 
 static void print_ast(struct ast_node *n, int depth)
@@ -633,15 +644,21 @@ static void print_ast(struct ast_node *n, int depth)
         break;
     case AST_FUNCTION_DECL:
 	{
-        printf("function '%s'\n", n->func_decl_data.id->identifier_data.name);
-        for(int i = 0; i < n->func_decl_data.numparms; ++i)
+        
+		if(n->func_decl_data.body != NULL)
 		{
-            print_tabs(depth);
-            printf("parm %d -> %s\n", i, n->func_decl_data.parameters[i]->variable_decl_data.id);
-            print_ast(n->func_decl_data.parameters[i]->variable_decl_data.data_type, depth + 1);
+			printf("function '%s'\n", n->func_decl_data.id->identifier_data.name);
+			for(int i = 0; i < n->func_decl_data.numparms; ++i)
+			{
+				print_tabs(depth);
+				printf("parm %d -> %s\n", i, n->func_decl_data.parameters[i]->variable_decl_data.id->identifier_data.name);
+				print_ast(n->func_decl_data.parameters[i]->variable_decl_data.data_type, depth + 1);
+			}
+			print_ast(n->func_decl_data.body, depth + 1);
+		} else
+		{
+			printf("import function '%s'\n", n->func_decl_data.id->identifier_data.name);
 		}
-
-		print_ast(n->func_decl_data.body, depth + 1);
 	} break;
 
     case AST_POINTER_DATA_TYPE:
