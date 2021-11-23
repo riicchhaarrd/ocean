@@ -31,6 +31,8 @@
 
 struct ast_node;
 
+#define IDENT_CHARLEN (64)
+
 enum AST_LITERAL_TYPE
 {
 	LITERAL_INTEGER,
@@ -50,7 +52,7 @@ struct ast_literal
 
     union
     {
-        char string[32]; //C's max identifier length is 31 iirc
+        char string[IDENT_CHARLEN]; //C's max identifier length is 31 iirc
         float flt;
         double dbl;
         int integer;
@@ -60,7 +62,7 @@ struct ast_literal
 
 struct ast_identifier
 {
-    char name[64];
+    char name[IDENT_CHARLEN];
 };
 
 static void print_literal(struct ast_literal* lit)
@@ -171,40 +173,31 @@ enum TYPE_QUALIFIER
 {
     TQ_NONE = 0,
     TQ_CONST = 1,
-    TQ_VOLATILE = 2
+    TQ_VOLATILE = 2,
+    TQ_UNSIGNED = 4
 };
 
 /* int,char,float,double etc...*/
-struct ast_primitive_data_type
+struct ast_primitive
 {
-    int qualifiers;
     int primitive_type;
+	int qualifiers;
 };
 
-struct ast_struct_data_type
+//TODO: FIXME rename
+//maybe name is too generic?
+struct ast_data_type
 {
-    struct ast_node *struct_ref;
+    struct ast_node *data_type;
     int qualifiers;
+	int array_size;
 };
 
 struct ast_struct_decl
 {
-	char name[64];
+	char name[IDENT_CHARLEN];
 	struct ast_node* fields[32]; // TODO: increase N
 	int numfields;
-};
-
-struct ast_array_data_type
-{
-    struct ast_node *data_type; //can be either primitive, array or a struct e.g AoS
-    int array_size;
-    //struct ast_array_data_type *next;
-};
-
-struct ast_pointer_data_type
-{
-    int qualifiers;
-    struct ast_node *data_type;
 };
 
 struct ast_variable_decl
@@ -250,6 +243,12 @@ struct ast_cast
     struct ast_node *expr;
 };
 
+struct ast_typedef
+{
+	char name[IDENT_CHARLEN];
+    struct ast_node *type;
+};
+
 struct ast_node
 {
     struct ast_node *parent;
@@ -275,17 +274,16 @@ struct ast_node
         struct ast_return_stmt return_stmt_data;
         struct ast_member_expr member_expr_data;
         struct ast_variable_decl variable_decl_data;
-        struct ast_primitive_data_type primitive_data_type_data;
-        struct ast_array_data_type array_data_type_data;
-        struct ast_pointer_data_type pointer_data_type_data;
+        struct ast_primitive primitive_data;
         struct ast_emit emit_data;
         struct ast_sizeof sizeof_data;
         struct ast_ternary_expr ternary_expr_data;
         struct ast_break_stmt break_stmt_data;
         struct ast_seq_expr seq_expr_data;
         struct ast_cast cast_data;
-        struct ast_struct_data_type struct_data_type_data;
+        struct ast_data_type data_type_data;
         struct ast_struct_decl struct_decl_data;
+        struct ast_typedef typedef_data;
     };
 };
 

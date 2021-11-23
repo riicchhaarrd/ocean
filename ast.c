@@ -17,6 +17,8 @@ struct ast_context
 
     int verbose;
     jmp_buf jmp;
+	
+	int numtypes;
 };
 
 static void statement(struct ast_context *ctx, struct ast_node **node);
@@ -176,11 +178,17 @@ static struct ast_node *identifier(struct ast_context *ctx, const char *name)
 static void add_type_definition(struct ast_context *ctx, const char *key, struct ast_node *n)
 {
 	hash_map_insert(ctx->type_definitions, key, *n);
+	++ctx->numtypes;
 }
 
 static struct ast_node *find_type_definition(struct ast_context *ctx, const char *key)
 {
-    return hash_map_find(ctx->type_definitions, key);
+    struct ast_node *n = hash_map_find(ctx->type_definitions, key);
+	if(!n)
+		return NULL;
+	if(n->type == AST_TYPEDEF)
+		return n->typedef_data.type;
+	return n;
 }
 
 void expression_sequence(struct ast_context *ctx, struct ast_node **node);
@@ -190,6 +198,9 @@ static int type_qualifiers(struct ast_context *ctx, int *qualifiers)
     *qualifiers = TQ_NONE;
     if(!ast_accept(ctx, TK_CONST))
         *qualifiers |= TQ_CONST;
+	/* these do not really fit in here, and should be handled differently as it's own type, but for now this will do */
+	else if(!ast_accept(ctx, TK_T_UNSIGNED))
+		*qualifiers |= TQ_UNSIGNED;
     else
         return 1;
     return 0;
@@ -204,7 +215,7 @@ static void type_declaration_pointer(struct ast_context *ctx, struct ast_node **
 	for (int i = 0; i < np; ++i)
 	{
 		struct ast_node* pointer_type_node = push_node(ctx, AST_POINTER_DATA_TYPE);
-		pointer_type_node->pointer_data_type_data.data_type = *n;
+		pointer_type_node->data_type_data.data_type = *n;
 		*n = pointer_type_node;
 	}
 }
@@ -226,9 +237,9 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
 		{
 			int post_qualifiers = TQ_NONE;
 			type_qualifiers(ctx, &post_qualifiers);
-			struct ast_node* decl_node = push_node(ctx, AST_STRUCT_DATA_TYPE);
-            decl_node->struct_data_type_data.struct_ref = ref;
-            decl_node->struct_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
+			struct ast_node* decl_node = push_node(ctx, ref->type == AST_STRUCT_DECL || ref->type == AST_UNION_DECL ? AST_STRUCT_DATA_TYPE : AST_DATA_TYPE);
+            decl_node->data_type_data.data_type = ref;
+            decl_node->data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
 			*data_type_node = decl_node;
 			parse_advance(&ctx->parse_context);
 			type_declaration_pointer(ctx, data_type_node);
@@ -241,9 +252,9 @@ static int type_declaration(struct ast_context *ctx, struct ast_node **data_type
         int post_qualifiers = TQ_NONE;
         type_qualifiers(ctx, &post_qualifiers);
 
-		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE_DATA_TYPE );
-		primitive_type_node->primitive_data_type_data.primitive_type = primitive_type;
-		primitive_type_node->primitive_data_type_data.qualifiers = pre_qualifiers | post_qualifiers;
+		struct ast_node* primitive_type_node = push_node( ctx, AST_PRIMITIVE );
+		primitive_type_node->primitive_data.primitive_type = primitive_type;
+		primitive_type_node->primitive_data.qualifiers = pre_qualifiers | post_qualifiers;
         *data_type_node = primitive_type_node;
         
         type_declaration_pointer(ctx, data_type_node);
@@ -299,7 +310,8 @@ static struct ast_node *ident_factor(struct ast_context *ctx)
 				break;
 		} while ( !ast_accept( ctx, ',' ) );
 		return n;
-	} else if(!ast_accept(ctx, '.') || !ast_accept(ctx, TK_ARROW))
+	}
+	while(!ast_accept(ctx, '.') || !ast_accept(ctx, TK_ARROW))
     {
         int as_ptr = ast_token(ctx)->type == TK_ARROW;
 		struct ast_node* n = push_node(ctx, AST_STRUCT_MEMBER_EXPR);
@@ -310,7 +322,7 @@ static struct ast_node *ident_factor(struct ast_context *ctx)
 		// structure member access
 		ast_expect(ctx, TK_IDENT, "expected structure member name");
 		n->member_expr_data.property = identifier(ctx, ast_token(ctx)->string);
-        return n;
+		ident = n;
 	}
 	return ident;
 }
@@ -664,7 +676,7 @@ static void print_ast(struct ast_node *n, int depth)
     case AST_POINTER_DATA_TYPE:
 	{
         printf("pointer data type\n");
-        print_ast(n->pointer_data_type_data.data_type, depth + 1);
+        print_ast(n->data_type_data.data_type, depth + 1);
 	} break;
 
 	case AST_FUNCTION_CALL_EXPR:
@@ -725,13 +737,13 @@ static void print_ast(struct ast_node *n, int depth)
 
     case AST_ARRAY_DATA_TYPE:
 	{
-        printf("array data type [%d]\n", n->array_data_type_data.array_size);
-        print_ast(n->array_data_type_data.data_type, depth + 1);
+        printf("array data type [%d]\n", n->data_type_data.array_size);
+        print_ast(n->data_type_data.data_type, depth + 1);
 	} break;
 
-    case AST_PRIMITIVE_DATA_TYPE:
+    case AST_PRIMITIVE:
 	{
-        printf("type %s\n", data_type_strings[n->primitive_data_type_data.primitive_type]);
+        printf("type %s\n", data_type_strings[n->primitive_data.primitive_type]);
 	} break;
 
     case AST_RETURN_STMT:
@@ -776,6 +788,22 @@ static void print_ast(struct ast_node *n, int depth)
         printf("sizeof\n");
         print_ast(n->sizeof_data.subject, depth + 1);
 	} break;
+	
+	case AST_STRUCT_DATA_TYPE:
+	{
+		int is_union = n->data_type_data.data_type->type == AST_UNION_DECL;
+		printf("%s %s\n", is_union ? "union" : "struct", n->data_type_data.data_type->struct_decl_data.name);
+	} break;
+	
+	case AST_STRUCT_MEMBER_EXPR:
+	{
+		struct ast_node *ob = n->member_expr_data.object;
+		struct ast_node *prop = n->member_expr_data.property;
+		int arrow = n->member_expr_data.as_pointer;
+		printf("struct member expression %s\n", arrow ? "->" : ".");
+		print_ast(ob, depth + 1);
+		print_ast(prop, depth + 1);
+	} break;
     
 	default:
 		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
@@ -817,12 +845,12 @@ static void variable_declaration( struct ast_context* ctx, struct ast_node** out
 				int dc = ast_token(ctx)->integer;
 				ast_assert( ctx, dc > 0, "array size can't be zero" );
                 ast_expect(ctx, ']', "expected ] after array type declaration");
-				array_type_node->array_data_type_data.array_size = dc;
-				array_type_node->array_data_type_data.data_type = type_decl;
+				array_type_node->data_type_data.array_size = dc;
+				array_type_node->data_type_data.data_type = type_decl;
 				if ( ast_accept( ctx, '[' ) )
 					break;
 				struct ast_node* new_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
-				array_type_node->array_data_type_data.data_type = new_node;
+				array_type_node->data_type_data.data_type = new_node;
 				array_type_node = new_node;
 			}
 		}
@@ -1053,17 +1081,43 @@ static struct ast_node *program(struct ast_context *ctx)
     while(1)
     {
         if(!ast_accept(ctx, TK_EOF)) break;
-
-        if(!ast_accept(ctx, TK_STRUCT))
+		
+		if(!ast_accept(ctx, TK_TYPEDEF))
 		{
-            ast_expect(ctx, TK_IDENT, "no name for struct type");
-
-			struct ast_node struct_node = {.parent = NULL, .type = AST_STRUCT_DECL, .rvalue = 0};
-			snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "%s",
+			struct ast_node typedef_node = {.parent = NULL, .type = AST_TYPEDEF, .rvalue = 0};
+			struct ast_node* type_decl = NULL;
+			
+			int td = type_declaration( ctx , &type_decl );
+			ast_assert(ctx, !td, "error in type declaration for typedef");
+			if ( !type_decl )
+				ast_error( ctx, "expected type for typedef, got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
+			typedef_node.typedef_data.type = type_decl;
+			ast_expect(ctx, TK_IDENT, "expected name for typedef");
+			snprintf(typedef_node.typedef_data.name, sizeof(typedef_node.typedef_data.name), "%s",
 					 ast_token(ctx)->string);
-            struct_node.struct_decl_data.numfields = 0;
+			ast_expect(ctx, ';', "no ending semicolon for typedef");
+            add_type_definition(ctx, typedef_node.typedef_data.name, &typedef_node);
+			continue;
+		}
+		
+		if(!ast_accept(ctx, TK_STRUCT) || !ast_accept(ctx, TK_UNION))
+		{
+			int is_union_type = ast_token(ctx)->type == TK_UNION;
+			const char *type_string = is_union_type ? "union" : "struct";
 
-			ast_expect(ctx, '{', "no starting brace for struct type");
+			struct ast_node struct_node = {.parent = NULL, .type = is_union_type ? AST_UNION_DECL : AST_STRUCT_DECL, .rvalue = 0};			
+            struct_node.struct_decl_data.numfields = 0;
+			if(ast_accept(ctx, '{'))
+			{
+				ast_expect(ctx, TK_IDENT, "no name for %s type", type_string);
+				snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "%s",
+						 ast_token(ctx)->string);
+
+				ast_expect(ctx, '{', "no starting brace for %s type", type_string);
+			} else {
+				//if no name is specified set a random name
+				snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "#%s_%d", type_string, ctx->numtypes);
+			}
 
 			while (1)
 			{
@@ -1071,12 +1125,12 @@ static struct ast_node *program(struct ast_context *ctx)
 				variable_declaration(ctx, &field_node, 0);
 				if (!field_node)
 					break;
-				ast_expect(ctx, ';', "expected ; in struct field");
+				ast_expect(ctx, ';', "expected ; in %s field", type_string);
                 struct_node.struct_decl_data.fields[struct_node.struct_decl_data.numfields++] = field_node;
 			}
 
-			ast_expect(ctx, '}', "no ending brace for struct type");
-			ast_expect(ctx, ';', "no ending semicolon for struct type");
+			ast_expect(ctx, '}', "no ending brace for %s type", type_string);
+			ast_expect(ctx, ';', "no ending semicolon for %s type", type_string);
 
 			//linked_list_prepend(program_node->program_data.body, struct_node);
             add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
@@ -1149,7 +1203,8 @@ int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*
         .verbose = verbose,
         .function = NULL,
         .last_node = NULL,
-        .type_definitions = hash_map_create(struct ast_node)
+        .type_definitions = hash_map_create(struct ast_node),
+		.numtypes = 0
     };
 
     context.parse_context.current_token = NULL;

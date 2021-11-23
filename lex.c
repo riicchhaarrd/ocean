@@ -473,14 +473,18 @@ retry:
 				tk->type = TK_EMIT;
 			else if ( !strcmp( s, "struct" ) )
 				tk->type = TK_STRUCT;
+			else if ( !strcmp( s, "union" ) )
+				tk->type = TK_UNION;
+			else if ( !strcmp( s, "typedef" ) )
+				tk->type = TK_TYPEDEF;
 		}
-		snprintf(tk->string, sizeof(tk->string), "%s", s);
-		heap_string_free(&s);
+			snprintf(tk->string, sizeof(tk->string), "%s", s);
+			heap_string_free(&s);
 	    } else
 	    {
-    	tk->type = TK_INVALID;
-		printf("got %c, unhandled error\n", ch);
-		return 1; //error
+			tk->type = TK_INVALID;
+			printf("got %c, unhandled error\n", ch);
+			return 1; //error
 	    }
 	    break;
 	}

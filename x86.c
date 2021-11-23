@@ -96,10 +96,24 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
     case AST_STRUCT_DATA_TYPE:
     {
         int total = 0;
-        struct ast_node *ref = n->struct_data_type_data.struct_ref;
+        struct ast_node *ref = n->data_type_data.data_type;
         assert(ref);
-        for(int i = 0; i < ref->struct_decl_data.numfields; ++i)
-            total += data_type_size(ctx, ref->struct_decl_data.fields[i]->variable_decl_data.data_type);
+		if(ref->type == AST_UNION_DECL)
+		{				
+			for(int i = 0; i < ref->struct_decl_data.numfields; ++i)
+			{
+				int tmp = data_type_size(ctx, ref->struct_decl_data.fields[i]->variable_decl_data.data_type);
+				if(tmp > total)
+					total = tmp;
+			}
+		} else if(ref->type == AST_STRUCT_DECL)
+		{
+			for(int i = 0; i < ref->struct_decl_data.numfields; ++i)
+				total += data_type_size(ctx, ref->struct_decl_data.fields[i]->variable_decl_data.data_type);
+		} else
+		{
+			debug_printf( "unhandled struct data type node '%s', can't get size\n", AST_NODE_TYPE_to_string( ref->type ) );
+		}
         return total;
 	} break;
     case AST_IDENTIFIER:
@@ -109,21 +123,23 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
         return data_type_size(ctx, var->data_type_node);
 	}
 	break;
+	case AST_DATA_TYPE:
+		return data_type_size(ctx, n->data_type_data.data_type);
 	case AST_POINTER_DATA_TYPE:
         return IMM32;
-    case AST_PRIMITIVE_DATA_TYPE:
-        return primitive_data_type_size(n->primitive_data_type_data.primitive_type);
+    case AST_PRIMITIVE:
+        return primitive_data_type_size(n->primitive_data.primitive_type);
     case AST_ARRAY_DATA_TYPE:
 	{
-		assert( n->array_data_type_data.array_size > 0 );
+		assert( n->data_type_data.array_size > 0 );
 
-		if ( n->array_data_type_data.data_type->type == AST_ARRAY_DATA_TYPE )
-			return data_type_size( ctx, n->array_data_type_data.data_type ) * n->array_data_type_data.array_size;
-		else if ( n->array_data_type_data.data_type->type == AST_PRIMITIVE_DATA_TYPE )
+		if ( n->data_type_data.data_type->type == AST_ARRAY_DATA_TYPE )
+			return data_type_size( ctx, n->data_type_data.data_type ) * n->data_type_data.array_size;
+		else if ( n->data_type_data.data_type->type == AST_PRIMITIVE )
 		{
-            //printf("array size = %d, primitive_type_size = %d\n", n->array_data_type_data.array_size, primitive_data_type_size(  n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ));
-			return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type ) *
-				   n->array_data_type_data.array_size;
+            //printf("array size = %d, primitive_type_size = %d\n", n->data_type_data.array_size, primitive_data_type_size(  n->data_type_data.data_type->primitive_data_type_data.primitive_type ));
+			return primitive_data_type_size( n->data_type_data.data_type->primitive_data.primitive_type ) *
+				   n->data_type_data.array_size;
 		}
 		else
 		{
@@ -138,7 +154,7 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
 
 static int data_type_pass_by_reference(struct ast_node *n)
 {
-    if(n->type == AST_PRIMITIVE_DATA_TYPE || n->type == AST_POINTER_DATA_TYPE)
+    if(n->type == AST_PRIMITIVE || n->type == AST_POINTER_DATA_TYPE)
         return 0;
     //for now pass everything else by reference, arrays etc
     return 1;
@@ -467,8 +483,8 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	case AST_IDENTIFIER:
         return data_type_operand_size(ctx, identifier_data_node(ctx, n), ptr);
 
-	case AST_PRIMITIVE_DATA_TYPE:
-		return primitive_data_type_size( n->primitive_data_type_data.primitive_type );
+	case AST_PRIMITIVE:
+		return primitive_data_type_size( n->primitive_data.primitive_type );
         
 #ifndef MIN
 #define MIN( a, b ) ( ( a ) > ( b ) ? ( b ) : ( a ) )
@@ -482,14 +498,14 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	case AST_POINTER_DATA_TYPE:
 		if ( ptr )
 			return IMM32;
-		if ( n->pointer_data_type_data.data_type->type == AST_POINTER_DATA_TYPE )
-			return data_type_operand_size( ctx, n->pointer_data_type_data.data_type, 1 );
+		if ( n->data_type_data.data_type->type == AST_POINTER_DATA_TYPE )
+			return data_type_operand_size( ctx, n->data_type_data.data_type, 1 );
 		else
 			return primitive_data_type_size(
-				n->pointer_data_type_data.data_type->primitive_data_type_data.primitive_type );
+				n->data_type_data.data_type->primitive_data.primitive_type );
 
 	case AST_ARRAY_DATA_TYPE:
-		return primitive_data_type_size( n->array_data_type_data.data_type->primitive_data_type_data.primitive_type );
+		return primitive_data_type_size( n->data_type_data.data_type->primitive_data.primitive_type );
 
     case AST_STRUCT_MEMBER_EXPR:
     {
@@ -498,9 +514,9 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 		assert(idn->type == AST_STRUCT_DATA_TYPE || idn->type == AST_POINTER_DATA_TYPE);
         struct ast_node *sr = NULL;
         if(idn->type == AST_POINTER_DATA_TYPE)
-            sr = idn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+            sr = idn->data_type_data.data_type->data_type_data.data_type;
         else
-            sr = idn->struct_data_type_data.struct_ref;
+            sr = idn->data_type_data.data_type;
             
 		for (int i = 0; i < sr->struct_decl_data.numfields; ++i)
 		{
@@ -535,6 +551,8 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 		return data_type_operand_size(ctx, n->unary_expr_data.argument, ptr);
     case AST_CAST:
         return data_type_operand_size(ctx, n->cast_data.type, ptr);
+	case AST_DATA_TYPE:
+		return data_type_operand_size(ctx, n->data_type_data.data_type, ptr);
 	}
 	debug_printf( "unhandled data type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 	return 0;
@@ -1100,11 +1118,14 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         int sz = 0;
         switch(n->sizeof_data.subject->type)
 		{
-        case AST_PRIMITIVE_DATA_TYPE:
+        case AST_PRIMITIVE:
         case AST_POINTER_DATA_TYPE:
         case AST_ARRAY_DATA_TYPE:
         case AST_STRUCT_DATA_TYPE:
 			sz = data_type_size( ctx, n->sizeof_data.subject );
+			break;
+		case AST_DATA_TYPE:
+			sz = data_type_size(ctx,n->data_type_data.data_type);
 			break;
 		case AST_IDENTIFIER:
 		{
@@ -1143,9 +1164,9 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
         
 		struct ast_node* sr = NULL;
 		if (dn->type == AST_POINTER_DATA_TYPE)
-			sr = dn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+			sr = dn->data_type_data.data_type->data_type_data.data_type;
 		else
-			sr = dn->struct_data_type_data.struct_ref;
+			sr = dn->data_type_data.data_type;
 
 		assert(n->member_expr_data.property->type == AST_IDENTIFIER);
 		int off, sz;
@@ -1476,6 +1497,41 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 	case AST_STRUCT_MEMBER_EXPR:
 	{
 		struct ast_node* object = n->member_expr_data.object;
+		if(object->type == AST_STRUCT_MEMBER_EXPR)
+		{
+			//TODO: FIXME add support for nested struct member expressions
+			/*
+			// ast example
+			assignment expression operator =
+					struct member expression .
+							struct member expression .
+									identifier 'a'
+									identifier 'v'
+							identifier 'x'
+			*/
+			/*
+				//NOTE when fixing this, also make sure to load the location that a pointer is pointing to instead of the value of the location.
+				//basically do the same down below with if check pointer then either use lvalue or rvalue
+				a.y
+
+				struct a {int x,y,z;};
+
+				a = loc 100
+				y = offset 4
+
+				100 + 4
+
+				struct b { char z[32]; struct a; };
+				b = loc 300
+				b.a = offset 32
+
+				b.a.y
+
+				300 + 32
+				+ 4
+			*/
+
+		}
 		struct ast_node* dn = identifier_data_node(ctx, object);
         switch(dn->type)
 		{
@@ -1484,14 +1540,25 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
 		{
 			struct ast_node* sr = NULL;
 			if (dn->type == AST_POINTER_DATA_TYPE)
-				sr = dn->pointer_data_type_data.data_type->struct_data_type_data.struct_ref;
+				sr = dn->data_type_data.data_type->data_type_data.data_type;
 			else
-				sr = dn->struct_data_type_data.struct_ref;
+				sr = dn->data_type_data.data_type;
 
 			assert(n->member_expr_data.property->type == AST_IDENTIFIER);
 			int off, sz;
-			get_struct_member_info(ctx, &sr->struct_decl_data, n->member_expr_data.property->identifier_data.name, &off,
+			struct ast_node *field = get_struct_member_info(ctx, &sr->struct_decl_data, n->member_expr_data.property->identifier_data.name, &off,
 								   &sz);
+			assert(field);
+			//TODO: FIXME nested union/struct types
+			//for now the offset for any field in the struct is always 0
+			//altough if we then reference a struct that may be added and the union will just always be 0
+			//e.g union.struct_field.b
+			//union.struct_field = 0
+			//struct_field.b can be non-zero
+			if(sr->type == AST_UNION_DECL)
+			{
+				off = 0;
+			}
 			assert(sz > 0);
 			// printf("offset = %d, sz = %d for '%s'\n", off, sz, n->member_expr_data.property->identifier_data.name);
 

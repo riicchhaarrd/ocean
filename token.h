@@ -58,6 +58,8 @@ enum TOKEN_TYPE
     TK_PLUS_PLUS,
     TK_MINUS_MINUS,
     TK_STRUCT,
+    TK_UNION,
+    TK_TYPEDEF,
     TK_ARROW,
     
     TK_EOF,
@@ -109,6 +111,8 @@ static const char* token_type_strings[TK_MAX] = {
 	[TK_PLUS_PLUS] = "++",
 	[TK_MINUS_MINUS] = "--",
     [TK_STRUCT] = "struct",
+    [TK_UNION] = "union",
+    [TK_TYPEDEF] = "typedef",
     [TK_ARROW] = "->",
 	[TK_EOF] = "eof"
 };
