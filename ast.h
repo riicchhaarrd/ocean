@@ -243,10 +243,30 @@ struct ast_cast
     struct ast_node *expr;
 };
 
+
+//typedef node
+//typedef unsigned char BYTE;
+
 struct ast_typedef
 {
 	char name[IDENT_CHARLEN];
     struct ast_node *type;
+};
+
+// enum node
+// enum colors { red, green, blue };
+
+struct ast_enum
+{
+    char name[IDENT_CHARLEN]; //enum name
+	struct ast_node* values[32]; //holds the identifiers (ast_identifier) the enum value is the index
+	int numvalues;
+};
+
+struct ast_enum_value
+{
+    char ident[IDENT_CHARLEN];
+    int value;
 };
 
 struct ast_node
@@ -284,6 +304,8 @@ struct ast_node
         struct ast_data_type data_type_data;
         struct ast_struct_decl struct_decl_data;
         struct ast_typedef typedef_data;
+        struct ast_enum enum_data;
+        struct ast_enum_value enum_value_data;
     };
 };
 

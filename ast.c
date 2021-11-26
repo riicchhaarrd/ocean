@@ -1073,6 +1073,99 @@ static void statement(struct ast_context *ctx, struct ast_node **node)
 	ast_expect(ctx, ';', "expected ; after statement");
 }
 
+static void handle_typedef(struct ast_context *ctx)
+{    
+    struct ast_node typedef_node = {.parent = NULL, .type = AST_TYPEDEF, .rvalue = 0};
+    struct ast_node* type_decl = NULL;
+
+    int td = type_declaration( ctx , &type_decl );
+    ast_assert(ctx, !td, "error in type declaration for typedef");
+    if ( !type_decl )
+        ast_error( ctx, "expected type for typedef, got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
+    typedef_node.typedef_data.type = type_decl;
+    ast_expect(ctx, TK_IDENT, "expected name for typedef");
+    snprintf(typedef_node.typedef_data.name, sizeof(typedef_node.typedef_data.name), "%s",
+             ast_token(ctx)->string);
+    ast_expect(ctx, ';', "no ending semicolon for typedef");
+    add_type_definition(ctx, typedef_node.typedef_data.name, &typedef_node);
+}
+
+static void handle_enum_declaration(struct ast_context *ctx)
+{    
+    struct ast_node enum_node = {.parent = NULL, .type = AST_ENUM, .rvalue = 0};
+    if(ast_accept(ctx, '{'))
+	{
+		ast_expect(ctx, TK_IDENT, "expected name for enum");
+		snprintf(enum_node.enum_data.name, sizeof(enum_node.enum_data.name), "%s", ast_token(ctx)->string);
+        ast_expect(ctx, '{', "missing {");
+	} else
+	{
+		snprintf(enum_node.enum_data.name, sizeof(enum_node.enum_data.name), "#enum_%d", ctx->numtypes);
+	}
+
+    enum_node.enum_data.numvalues = 0;
+    
+    int currentvalue = 0;
+    do
+    {
+		ast_expect(ctx, TK_IDENT, "expected value for enum '%s'", enum_node.enum_data.name);
+		struct ast_node* enum_value_node = push_node(ctx, AST_ENUM_VALUE);
+		snprintf(enum_value_node->enum_value_data.ident, sizeof(enum_value_node->enum_value_data.ident), "%s",
+				 ast_token(ctx)->string);
+		if(!ast_accept(ctx, '='))
+        {
+            ast_expect(ctx, TK_INTEGER, "expected integer for enum value '%s'\n", enum_node.enum_data.name);
+            currentvalue = ast_token(ctx)->integer;
+        }
+        enum_value_node->enum_value_data.value = currentvalue;
+
+		// add each enum value as type itself aswell, so we can access it easy
+        //TODO: FIX atm type isn't recognized because it's not a declaration of a variable
+		add_type_definition(ctx, enum_value_node->enum_value_data.ident, enum_value_node);
+		enum_node.enum_data.values[enum_node.enum_data.numvalues++] = enum_value_node;
+    } while(!ast_accept(ctx, ','));
+    
+    ast_expect(ctx, '}', "missing }");
+    ast_expect(ctx, ';', "no ending semicolon for typedef");
+    add_type_definition(ctx, enum_node.enum_data.name, &enum_node);
+}
+
+static void handle_struct_or_union_declaration(struct ast_context *ctx)
+{
+    int is_union_type = ast_token(ctx)->type == TK_UNION;
+    const char *type_string = is_union_type ? "union" : "struct";
+
+    struct ast_node struct_node = {.parent = NULL, .type = is_union_type ? AST_UNION_DECL : AST_STRUCT_DECL, .rvalue = 0};			
+    struct_node.struct_decl_data.numfields = 0;
+    if(ast_accept(ctx, '{'))
+    {
+        ast_expect(ctx, TK_IDENT, "no name for %s type", type_string);
+        snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "%s",
+                 ast_token(ctx)->string);
+
+        ast_expect(ctx, '{', "no starting brace for %s type", type_string);
+    } else {
+        //if no name is specified set a random name
+        snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "#%s_%d", type_string, ctx->numtypes);
+    }
+
+    while (1)
+    {
+        struct ast_node* field_node;
+        variable_declaration(ctx, &field_node, 0);
+        if (!field_node)
+            break;
+        ast_expect(ctx, ';', "expected ; in %s field", type_string);
+        struct_node.struct_decl_data.fields[struct_node.struct_decl_data.numfields++] = field_node;
+    }
+
+    ast_expect(ctx, '}', "no ending brace for %s type", type_string);
+    ast_expect(ctx, ';', "no ending semicolon for %s type", type_string);
+
+    //linked_list_prepend(program_node->program_data.body, struct_node);
+    add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
+}
+
 static struct ast_node *program(struct ast_context *ctx)
 {
     struct ast_node *program_node = push_node(ctx, AST_PROGRAM);
@@ -1084,58 +1177,17 @@ static struct ast_node *program(struct ast_context *ctx)
 		
 		if(!ast_accept(ctx, TK_TYPEDEF))
 		{
-			struct ast_node typedef_node = {.parent = NULL, .type = AST_TYPEDEF, .rvalue = 0};
-			struct ast_node* type_decl = NULL;
-			
-			int td = type_declaration( ctx , &type_decl );
-			ast_assert(ctx, !td, "error in type declaration for typedef");
-			if ( !type_decl )
-				ast_error( ctx, "expected type for typedef, got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
-			typedef_node.typedef_data.type = type_decl;
-			ast_expect(ctx, TK_IDENT, "expected name for typedef");
-			snprintf(typedef_node.typedef_data.name, sizeof(typedef_node.typedef_data.name), "%s",
-					 ast_token(ctx)->string);
-			ast_expect(ctx, ';', "no ending semicolon for typedef");
-            add_type_definition(ctx, typedef_node.typedef_data.name, &typedef_node);
+            handle_typedef(ctx);
 			continue;
-		}
-		
-		if(!ast_accept(ctx, TK_STRUCT) || !ast_accept(ctx, TK_UNION))
+		} else if(!ast_accept(ctx, TK_STRUCT) || !ast_accept(ctx, TK_UNION))
 		{
-			int is_union_type = ast_token(ctx)->type == TK_UNION;
-			const char *type_string = is_union_type ? "union" : "struct";
-
-			struct ast_node struct_node = {.parent = NULL, .type = is_union_type ? AST_UNION_DECL : AST_STRUCT_DECL, .rvalue = 0};			
-            struct_node.struct_decl_data.numfields = 0;
-			if(ast_accept(ctx, '{'))
-			{
-				ast_expect(ctx, TK_IDENT, "no name for %s type", type_string);
-				snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "%s",
-						 ast_token(ctx)->string);
-
-				ast_expect(ctx, '{', "no starting brace for %s type", type_string);
-			} else {
-				//if no name is specified set a random name
-				snprintf(struct_node.struct_decl_data.name, sizeof(struct_node.struct_decl_data.name), "#%s_%d", type_string, ctx->numtypes);
-			}
-
-			while (1)
-			{
-				struct ast_node* field_node;
-				variable_declaration(ctx, &field_node, 0);
-				if (!field_node)
-					break;
-				ast_expect(ctx, ';', "expected ; in %s field", type_string);
-                struct_node.struct_decl_data.fields[struct_node.struct_decl_data.numfields++] = field_node;
-			}
-
-			ast_expect(ctx, '}', "no ending brace for %s type", type_string);
-			ast_expect(ctx, ';', "no ending semicolon for %s type", type_string);
-
-			//linked_list_prepend(program_node->program_data.body, struct_node);
-            add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
+			handle_struct_or_union_declaration(ctx);
             continue;
-		}
+		} else if(!ast_accept(ctx, TK_ENUM))
+        {
+            handle_enum_declaration(ctx);
+            continue;
+        }
 
 		struct ast_node* type_decl = NULL;
         int td = type_declaration( ctx , &type_decl );

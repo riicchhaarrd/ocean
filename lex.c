@@ -477,6 +477,8 @@ retry:
 				tk->type = TK_UNION;
 			else if ( !strcmp( s, "typedef" ) )
 				tk->type = TK_TYPEDEF;
+			else if ( !strcmp( s, "enum" ) )
+				tk->type = TK_ENUM;
 		}
 			snprintf(tk->string, sizeof(tk->string), "%s", s);
 			heap_string_free(&s);

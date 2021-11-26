@@ -61,6 +61,7 @@ enum TOKEN_TYPE
     TK_UNION,
     TK_TYPEDEF,
     TK_ARROW,
+    TK_ENUM,
     
     TK_EOF,
     TK_MAX,
@@ -114,6 +115,7 @@ static const char* token_type_strings[TK_MAX] = {
     [TK_UNION] = "union",
     [TK_TYPEDEF] = "typedef",
     [TK_ARROW] = "->",
+    [TK_ENUM] = "enum",
 	[TK_EOF] = "eof"
 };
 
