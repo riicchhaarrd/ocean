@@ -15,8 +15,27 @@ enum REGISTER
     ESP,
     EBP,
     ESI,
-    EDI
+    EDI,
+	
+	EIP,
+	REGISTER_X86_FLAGS,
+	REGISTER_X86_MAX
 };
+
+enum FLAGS
+{
+	X86_CARRY_FLAG = 1,
+	X86_PARITY_FLAG = 0x4,
+	X86_ADJUST_FLAG = 0x10,
+	X86_ZERO_FLAG = 0x40,
+	X86_SIGN_FLAG = 0x80,
+	X86_TRAP_FLAG = 0x100,
+	X86_INTERRUPT_ENABLE_FLAG = 0x200,
+	X86_DIRECTION_FLAG = 0x400,
+	X86_OVERFLOW_FLAG = 0x800
+};
+
+static const char *register_x86_names[] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi","eip",NULL};
 
 enum
 {
