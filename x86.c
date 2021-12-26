@@ -259,7 +259,10 @@ static FUNCTION_CALL_TYPE identify_function_call_type(struct compile_context* ct
     if (!strcmp(function_name, "int3"))
         return FUNCTION_CALL_INT3;
 
-    if (!strcmp(function_name, "syscall") && ctx->build_target == BT_LINUX)
+    if (!strcmp(function_name, "syscall")
+		&&
+		(ctx->build_target == BT_OPCODES || ctx->build_target == BT_LINUX)
+		)
         return FUNCTION_CALL_SYSCALL;
 
     struct function *fn = lookup_function_by_name(ctx, function_name);
@@ -2096,6 +2099,7 @@ int x86(struct ast_node *head, struct compile_context *ctx)
     switch (ctx->build_target)
     {
     case BT_LINUX:
+    case BT_OPCODES:
         //insert linux syscall exit
         //mov ebx, eax
         db(ctx, 0x89);

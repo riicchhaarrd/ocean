@@ -82,7 +82,8 @@ int build_memory_image(struct compile_context *ctx, const char *binary_path)
     printf("result: %d\n", result);
     VirtualFree(buffer, 0, MEM_RELEASE);
 	#else
-		perror("unsupported\n");
+		printf("memory build target is unsupported on this platform.\n");
+		exit(1);
 	#endif
 	return 0;
 }

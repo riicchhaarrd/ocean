@@ -85,7 +85,8 @@ enum BUILD_TARGET
     BT_UNKNOWN,
     BT_LINUX,
     BT_WINDOWS,
-    BT_MEMORY
+    BT_MEMORY,
+    BT_OPCODES
 };
 
 struct dynlib_sym

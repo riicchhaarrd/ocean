@@ -85,7 +85,7 @@ int main( int argc, char** argv )
     const char *files[32];
     int numfiles = 0;
 	//use build target memory as default
-	int build_target = BT_MEMORY;
+	int build_target = BT_OPCODES;
 	struct linked_list* symbols = linked_list_create(struct dynlib_sym);
 	size_t nsymbols = 0;
 	
@@ -129,6 +129,8 @@ int main( int argc, char** argv )
 					build_target = BT_LINUX;
 				else if (!strcmp(build_target_str, "memory"))
 					build_target = BT_MEMORY;
+				else if(!strcmp(build_target_str, "opcodes"))
+					build_target = BT_OPCODES;
 				if (opt_flags & OPT_VERBOSE)
 				printf("build_target = %d\n", build_target);
 			}
@@ -213,15 +215,47 @@ int main( int argc, char** argv )
                 int ret;
 				switch (build_target)
 				{
-				case BT_WINDOWS:
-					ret = build_exe_image(&ctx, dst);
-					break;
-				case BT_LINUX:
-					ret = build_elf_image(&ctx, dst);
-					break;
-				case BT_MEMORY:
-					ret = build_memory_image(&ctx, dst);
-					break;
+					case BT_WINDOWS:
+						ret = build_exe_image(&ctx, dst);
+						break;
+					case BT_LINUX:
+						ret = build_elf_image(&ctx, dst);
+						break;
+					case BT_MEMORY:
+						ret = build_memory_image(&ctx, dst);
+						break;
+					case BT_OPCODES:
+					{
+						heap_string instr = ctx.instr;
+						int n = heap_string_size(&instr);
+						linked_list_reversed_foreach(ctx.relocations, struct relocation*, it,
+						{
+							if(it->type == RELOC_DATA)
+							{
+								*(u32*)&instr[it->from] = it->to + n;
+							}
+							else if(it->type == RELOC_CODE)
+							{
+								*(u32*)&instr[it->from] = it->to;
+							} else
+							{
+								printf("unknown relocation type %d\n", it->type);
+								exit(1);
+							}
+						});
+						
+						for(int i = 0; i < n; ++i)
+						{
+							printf("%02X%s", instr[i] & 0xff, i + 1 == n ? "" : " ");
+						}
+						putchar(' ');
+						heap_string data_buf = ctx.data;
+						size_t dl = heap_string_size(&data_buf);
+						for(int i = 0; i < dl; ++i)
+						{
+							printf("%02X%s", data_buf[i] & 0xff, i + 1 == dl ? "" : " ");
+						}
+					} break;
 				}
 				if (opt_flags & OPT_VERBOSE)
 				printf( "building image '%s' (return code = %d)\n", dst, ret );
