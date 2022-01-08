@@ -27,6 +27,21 @@ static int dd(heap_string *s, uint32_t i)
 	return sz;
 }
 
+static int dq(heap_string *s, uint64_t i)
+{
+	int sz = heap_string_size( s );
+	union
+	{
+		uint64_t i;
+		uint8_t b[8];
+	} u = { .i = i };
+
+	for ( size_t i = 0; i < 8; ++i )
+		heap_string_push( s, u.b[i] );
+
+	return sz;
+}
+
 static int dw( heap_string* s, uint16_t i )
 {
 	int sz = heap_string_size( s );
