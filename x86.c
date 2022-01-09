@@ -7,14 +7,14 @@
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
 
-struct ast_node *get_struct_member_info(struct compile_context* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size);
+struct ast_node *get_struct_member_info(compiler_t* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size);
 
-int instruction_position(struct compile_context *ctx)
+int instruction_position(compiler_t *ctx)
 {
     return heap_string_size(&ctx->instr);
 }
 
-static void dd(struct compile_context *ctx, u32 i)
+static void dd(compiler_t *ctx, u32 i)
 {
     union
     {
@@ -26,7 +26,7 @@ static void dd(struct compile_context *ctx, u32 i)
 		heap_string_push(&ctx->instr, u.b[i]);
 }
 
-static void dw(struct compile_context *ctx, u16 i)
+static void dw(compiler_t *ctx, u16 i)
 {
     union
     {
@@ -38,23 +38,23 @@ static void dw(struct compile_context *ctx, u16 i)
     heap_string_push(&ctx->instr, u.b[1]);
 }
 
-static void db(struct compile_context *ctx, u8 op)
+static void db(compiler_t *ctx, u8 op)
 {
     heap_string_push(&ctx->instr, op);
 }
 
-static void set8(struct compile_context *ctx, int offset, u8 op)
+static void set8(compiler_t *ctx, int offset, u8 op)
 {
     ctx->instr[offset] = op;
 }
 
-static void set32(struct compile_context *ctx, int offset, u32 value)
+static void set32(compiler_t *ctx, int offset, u32 value)
 {
     u32 *ptr = (u32*)&ctx->instr[offset];
     *ptr = value;
 }
 
-static void buf(struct compile_context *ctx, const char *buf, size_t len)
+static void buf(compiler_t *ctx, const char *buf, size_t len)
 {
     for(size_t i = 0; i < len; ++i)
     {
@@ -62,7 +62,7 @@ static void buf(struct compile_context *ctx, const char *buf, size_t len)
     }
 }
 
-struct function* lookup_function_by_name(struct compile_context *ctx, const char *name)
+struct function* lookup_function_by_name(compiler_t *ctx, const char *name)
 {    
     linked_list_reversed_foreach(ctx->functions, struct function*, it,
     {
@@ -76,20 +76,20 @@ static int primitive_data_type_size(int type)
 {
     switch(type)
 	{
-    case DT_CHAR: return IMM8;
-    case DT_SHORT: return IMM16;
-    case DT_INT: return IMM32;
-    case DT_LONG: return IMM32;
-    case DT_NUMBER: return IMM32;
-    case DT_FLOAT: return IMM32;
-    case DT_DOUBLE: return IMM32;
+    case DT_CHAR: return 1;
+    case DT_SHORT: return 2;
+    case DT_INT: return 4;
+    case DT_LONG: return 4;
+    case DT_NUMBER: return 4;
+    case DT_FLOAT: return 4;
+    case DT_DOUBLE: return 4;
     case DT_VOID: return 0;
 	}
     debug_printf("unhandled type %d\n", type);
     return 0;
 }
 
-static int data_type_size(struct compile_context *ctx, struct ast_node *n)
+static int data_type_size(compiler_t *ctx, struct ast_node *n)
 {
     switch(n->type)
 	{
@@ -126,7 +126,7 @@ static int data_type_size(struct compile_context *ctx, struct ast_node *n)
 	case AST_DATA_TYPE:
 		return data_type_size(ctx, n->data_type_data.data_type);
 	case AST_POINTER_DATA_TYPE:
-        return IMM32;
+        return 4;
     case AST_PRIMITIVE:
         return primitive_data_type_size(n->primitive_data.primitive_type);
     case AST_ARRAY_DATA_TYPE:
@@ -163,38 +163,38 @@ static int data_type_pass_by_reference(struct ast_node *n)
 //TODO: implement all opcodes we'll be using so we can keep track of the registers and their values
 //TODO: replace our "real" registers with "virtual" registers
 
-static void push(struct compile_context *ctx, enum REGISTER reg)
+static void push(compiler_t *ctx, reg_t reg)
 {
     db(ctx, 0x50 + reg);
     ctx->registers[ESP] -= 4;
 }
 
-static void inc(struct compile_context *ctx, enum REGISTER reg)
+static void inc(compiler_t *ctx, reg_t reg)
 {
     db(ctx, 0x40 + reg);
 }
 
-static void pop(struct compile_context *ctx, enum REGISTER reg)
+static void pop(compiler_t *ctx, reg_t reg)
 {
     db(ctx, 0x58 + reg);
     ctx->registers[ESP] += 4;
 }
 
-static void mov_r_imm32(struct compile_context *ctx, enum REGISTER reg, i32 imm)
+static void mov_r_imm32(compiler_t *ctx, reg_t reg, i32 imm)
 {
     ctx->registers[reg] = imm;
     db(ctx, 0xb8 + reg);
     dd(ctx, imm);
 }
 
-static void add(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
+static void add(compiler_t *ctx, reg_t a, reg_t b)
 {
     ctx->registers[a] += ctx->registers[b];
     db(ctx, 0x01);
     db(ctx, 0xc0 + b * 9 + a);
 }
 
-static void xor(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
+static void xor(compiler_t *ctx, reg_t a, reg_t b)
 {
     assert(a == EAX && b == EAX);
     ctx->registers[a] ^= ctx->registers[b];
@@ -202,21 +202,21 @@ static void xor(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
 	db( ctx, 0xc0 + b * 9 + a );
 }
 
-static void sub(struct compile_context *ctx, enum REGISTER a, enum REGISTER b)
+static void sub(compiler_t *ctx, reg_t a, reg_t b)
 {
     ctx->registers[a] += ctx->registers[b];
     db(ctx, 0x29);
     db(ctx, 0xc0 + b * 9 + a);
 }
 
-static int add_data(struct compile_context *ctx, void *data, u32 data_size)
+static int add_data(compiler_t *ctx, void *data, u32 data_size)
 {
     int curpos = heap_string_size(&ctx->data);
     heap_string_appendn(&ctx->data, data, data_size);
 	return curpos;
 }
 
-static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const char *str)
+static void mov_r_string(compiler_t *ctx, reg_t reg, const char *str)
 {
 	db( ctx, 0xb8 + reg);
 	int from = instruction_position( ctx );
@@ -242,7 +242,7 @@ static void mov_r_string(struct compile_context *ctx, enum REGISTER reg, const c
 	linked_list_prepend( ctx->relocations, reloc );
 }
 
-static int process(struct compile_context *ctx, struct ast_node *n);
+static int process(compiler_t *ctx, struct ast_node *n);
 
 typedef enum
 {
@@ -254,7 +254,7 @@ typedef enum
     FUNCTION_CALL_INT3
 } FUNCTION_CALL_TYPE;
 
-static FUNCTION_CALL_TYPE identify_function_call_type(struct compile_context* ctx, const char* function_name, /*avoid looking up the symbols multiple times when we don't have to */struct function **fn_out, struct dynlib_sym** sym_out)
+static FUNCTION_CALL_TYPE identify_function_call_type(compiler_t* ctx, const char* function_name, /*avoid looking up the symbols multiple times when we don't have to */struct function **fn_out, struct dynlib_sym** sym_out)
 {
     if (!strcmp(function_name, "int3"))
         return FUNCTION_CALL_INT3;
@@ -283,11 +283,11 @@ static FUNCTION_CALL_TYPE identify_function_call_type(struct compile_context* ct
     return FUNCTION_CALL_NOT_FOUND;
 }
 
-static int function_call_ident(struct compile_context *ctx, const char *function_name, struct ast_node **args, int numargs)
+static int function_call_ident(compiler_t *ctx, const char *function_name, struct ast_node **args, int numargs)
 {
     struct function *fn;
     struct dynlib_sym* sym;
-    int rvalue(struct compile_context* ctx, enum REGISTER reg, struct ast_node* n);
+    int rvalue(compiler_t* ctx, reg_t reg, struct ast_node* n);
 
     FUNCTION_CALL_TYPE function_call_type = identify_function_call_type(ctx, function_name, &fn, &sym);
     switch (function_call_type)
@@ -407,7 +407,7 @@ static int function_call_ident(struct compile_context *ctx, const char *function
     return 0;
 }
 
-static int function_variable_declaration_stack_size( struct compile_context* ctx, struct ast_node* n )
+static int function_variable_declaration_stack_size( compiler_t* ctx, struct ast_node* n )
 {
 	assert( n->type == AST_FUNCTION_DECL );
 	int nd = n->func_decl_data.numdeclarations;
@@ -430,7 +430,7 @@ static int function_variable_declaration_stack_size( struct compile_context* ctx
 }
 
 #if 0 
-static int accumulate_local_variable_declaration_size(struct compile_context *ctx, struct ast_node *n)
+static int accumulate_local_variable_declaration_size(compiler_t *ctx, struct ast_node *n)
 {
     assert(n->type == AST_BLOCK_STMT);
     
@@ -463,12 +463,12 @@ static int accumulate_local_variable_declaration_size(struct compile_context *ct
 }
 #endif
 
-static intptr_t register_value(struct compile_context *ctx, enum REGISTER reg)
+static intptr_t register_value(compiler_t *ctx, reg_t reg)
 {
     return ctx->registers[reg];
 }
 
-static struct ast_node *identifier_data_node(struct compile_context *ctx, struct ast_node *n)
+static struct ast_node *identifier_data_node(compiler_t *ctx, struct ast_node *n)
 {
     if(n->type != AST_IDENTIFIER)
         debug_printf("expected identifier, got '%s'\n", AST_NODE_TYPE_to_string(n->type));
@@ -478,7 +478,7 @@ static struct ast_node *identifier_data_node(struct compile_context *ctx, struct
     return var->data_type_node;
 }
 
-static int data_type_operand_size(struct compile_context *ctx, struct ast_node *n, int ptr)
+static int data_type_operand_size(compiler_t *ctx, struct ast_node *n, int ptr)
 {
 	switch ( n->type )
 	{
@@ -496,11 +496,11 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
         return MIN( data_type_operand_size(ctx, n->bin_expr_data.lhs, ptr), data_type_operand_size(ctx, n->bin_expr_data.rhs, ptr) );
 
     case AST_LITERAL:
-        return IMM32;
+        return 4;
 
 	case AST_POINTER_DATA_TYPE:
 		if ( ptr )
-			return IMM32;
+			return 4;
 		if ( n->data_type_data.data_type->type == AST_POINTER_DATA_TYPE )
 			return data_type_operand_size( ctx, n->data_type_data.data_type, 1 );
 		else
@@ -561,10 +561,10 @@ static int data_type_operand_size(struct compile_context *ctx, struct ast_node *
 	return 0;
 }
 
-int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
-int lvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n);
-void store_operand(struct compile_context *ctx, struct ast_node *n);
-static void ast_handle_assignment_expression( struct compile_context* ctx, struct ast_node* n )
+int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n);
+int lvalue(compiler_t *ctx, reg_t reg, struct ast_node *n);
+void store_operand(compiler_t *ctx, struct ast_node *n);
+static void ast_handle_assignment_expression( compiler_t* ctx, struct ast_node* n )
 {
     push(ctx, EBX);
 	struct ast_node* lhs = n->assignment_expr_data.lhs;
@@ -699,24 +699,24 @@ static void ast_handle_assignment_expression( struct compile_context* ctx, struc
 }
 
 
-void store_operand(struct compile_context *ctx, struct ast_node *n)
+void store_operand(compiler_t *ctx, struct ast_node *n)
 {
 	int os = data_type_operand_size( ctx, n, 1 );
 	// TODO: fix hardcoded EBX
 	switch ( os )
 	{
-	case IMM32:
+	case 4:
 		// mov [ebx],eax
 		db( ctx, 0x89 );
 		db( ctx, 0x03 );
 		break;
-    case IMM16:
+    case 2:
 		// mov word ptr [ebx], ax
 		db( ctx, 0x66 );
 		db( ctx, 0x89 );
 		db( ctx, 0x03 );
         break;
-	case IMM8:
+	case 1:
 		// mov byte ptr [ebx], al
 		db( ctx, 0x88 );
 		db( ctx, 0x03 );
@@ -736,23 +736,23 @@ void store_operand(struct compile_context *ctx, struct ast_node *n)
 	}
 }
 
-static int load_operand(struct compile_context *ctx, struct ast_node *n)
+static int load_operand(compiler_t *ctx, struct ast_node *n)
 {
 	int os = data_type_operand_size( ctx, n, 0 );
 	switch ( os )
 	{
-	case IMM32:
+	case 4:
 		// mov eax, [ebx]
 		db( ctx, 0x8b );
 		db( ctx, 0x03 );
 		break;
-    case IMM16:
+    case 2:
 		// movzx eax, word [ebx]
 		db( ctx, 0x0f );
 		db( ctx, 0xb7 );
 		db( ctx, 0x03 );
         break;
-	case IMM8:
+	case 1:
 		// movzx eax, byte [ebx]
 		db( ctx, 0x0f );
 		db( ctx, 0xb6 );
@@ -766,7 +766,7 @@ static int load_operand(struct compile_context *ctx, struct ast_node *n)
     return os;
 }
 
-int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
+int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 {
     //printf("rvalue node '%s'\n", AST_NODE_TYPE_to_string(n->type));
     switch(n->type)
@@ -819,7 +819,7 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 			int os = data_type_operand_size( ctx, n, 1 );
             switch(os)
 			{
-            case IMM32:
+            case 4:
 				/* // mov r32,[ebp - offset] */
 				/* db( ctx, 0x8b ); */
 				/* db( ctx, 0x45 + 8 * reg ); */
@@ -830,8 +830,8 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
 				db(ctx, 0x85 + 8 * reg);
 				dd(ctx, offset);
 				break;
-            case IMM16:
-            case IMM8:
+            case 2:
+            case 1:
                 push(ctx,EBX);
                 lvalue(ctx,EBX,n);
                 load_operand(ctx, n);
@@ -1456,7 +1456,7 @@ int rvalue(struct compile_context *ctx, enum REGISTER reg, struct ast_node *n)
     return 0;
 }
 
-struct ast_node *get_struct_member_info(struct compile_context* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size)
+struct ast_node *get_struct_member_info(compiler_t* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size)
 {
     int total_offset = 0;
     for(int i = 0; i < decl->numfields; ++i)
@@ -1474,7 +1474,7 @@ struct ast_node *get_struct_member_info(struct compile_context* ctx, struct ast_
 }
 
 // locator value, can be local variable, global variable, array offset or any other valid lvalue
-int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
+int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 {
 	switch ( n->type )
 	{
@@ -1695,27 +1695,27 @@ int lvalue( struct compile_context* ctx, enum REGISTER reg, struct ast_node* n )
     return 0;
 }
 
-static struct scope *active_scope(struct compile_context *ctx)
+static struct scope *active_scope(compiler_t *ctx)
 {
     if(ctx->scope_index == 0)
         return NULL;
     return ctx->scope[ctx->scope_index - 1];
 }
 
-static void enter_scope(struct compile_context *ctx, struct scope *scope)
+static void enter_scope(compiler_t *ctx, struct scope *scope)
 {
     assert(ctx->scope_index + 1 < COUNT_OF(ctx->scope));
     scope->numbreaks = 0;
     ctx->scope[ctx->scope_index++] = scope;
 }
 
-static void exit_scope(struct compile_context *ctx)
+static void exit_scope(compiler_t *ctx)
 {
     --ctx->scope_index;
     ctx->scope[ctx->scope_index] = NULL;
 }
 
-static int process(struct compile_context *ctx, struct ast_node *n)
+static int process(compiler_t *ctx, struct ast_node *n)
 {
     switch(n->type)
     {
@@ -2061,7 +2061,7 @@ static int process(struct compile_context *ctx, struct ast_node *n)
     }
 }
 
-int x86(struct ast_node *head, struct compile_context *ctx)
+int x86(struct ast_node *head, compiler_t *ctx)
 {
     ctx->entry = 0xffffffff;
     ctx->instr = NULL;

@@ -113,7 +113,7 @@ PACK(struct section_hdr
     u32 characteristics;
 });
 
-int build_exe_image(struct compile_context *ctx, const char *binary_path)
+int build_exe_image(compiler_t *ctx, const char *binary_path)
 {
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;

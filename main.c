@@ -26,7 +26,7 @@
 
 // imported functions from other files
 int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
-int x86(struct ast_node *head, struct compile_context *ctx);
+int x86(struct ast_node *head, compiler_t *ctx);
 
 int opt_flags = 0;
 
@@ -195,7 +195,7 @@ int main( int argc, char** argv )
 
     struct linked_list *ast_list = NULL;
     struct ast_node *root = NULL;
-	struct compile_context ctx = { 0 };
+	compiler_t ctx = { 0 };
     ctx.build_target = build_target;
 	ctx.find_import_fn = find_lib_symbol;
 	ctx.find_import_fn_userptr = symbols;
@@ -209,9 +209,9 @@ int main( int argc, char** argv )
 		{
             if ( (opt_flags & OPT_INSTR) != OPT_INSTR )
 			{
-				int build_elf_image( struct compile_context * ctx, const char* binary_path );
-				int build_exe_image( struct compile_context * ctx, const char* binary_path );
-				int build_memory_image( struct compile_context * ctx, const char* binary_path );
+				int build_elf_image( compiler_t * ctx, const char* binary_path );
+				int build_exe_image( compiler_t * ctx, const char* binary_path );
+				int build_memory_image( compiler_t * ctx, const char* binary_path );
                 int ret;
 				switch (build_target)
 				{

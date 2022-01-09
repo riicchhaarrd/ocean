@@ -33,7 +33,7 @@ enum
     PT_LOAD = 0x1
 };
 
-int build_elf_image(struct compile_context *ctx, const char *binary_path)
+int build_elf_image(compiler_t *ctx, const char *binary_path)
 {
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;

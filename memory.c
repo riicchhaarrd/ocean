@@ -15,7 +15,7 @@
 
 extern int opt_flags;
 
-int build_memory_image(struct compile_context *ctx, const char *binary_path)
+int build_memory_image(compiler_t *ctx, const char *binary_path)
 {
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;

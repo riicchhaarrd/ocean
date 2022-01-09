@@ -6,7 +6,7 @@
 #include "data_type.h"
 #include "rhd/hash_string.h"
 
-enum REGISTER
+typedef enum
 {
     EAX,
     ECX,
@@ -20,7 +20,7 @@ enum REGISTER
 	EIP,
 	REGISTER_X86_FLAGS,
 	REGISTER_X86_MAX
-};
+} reg_t;
 
 enum FLAGS
 {
@@ -36,13 +36,6 @@ enum FLAGS
 };
 
 static const char *register_x86_names[] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi","eip",NULL};
-
-enum
-{
-    IMM32 = 4,
-    IMM16 = 2,
-    IMM8 = 1
-};
 
 struct variable
 {
@@ -99,7 +92,7 @@ struct dynlib_sym
 
 typedef struct dynlib_sym* (*find_import_fn_t)(void *userptr, const char *key);
 
-struct compile_context
+typedef struct compiler_s
 {
     int build_target;
     u32 entry;
@@ -118,5 +111,5 @@ struct compile_context
 
     void* find_import_fn_userptr;
     find_import_fn_t find_import_fn;
-};
+} compiler_t;
 #endif
