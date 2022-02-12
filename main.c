@@ -25,7 +25,6 @@
 #endif
 
 // imported functions from other files
-int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
 int x86(struct ast_node *head, compiler_t *ctx);
 
 int opt_flags = 0;

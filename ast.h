@@ -269,7 +269,7 @@ struct ast_enum_value
     int value;
 };
 
-struct ast_node
+typedef struct ast_node
 {
     struct ast_node *parent;
 	enum AST_NODE_TYPE type;
@@ -307,11 +307,12 @@ struct ast_node
         struct ast_enum enum_data;
         struct ast_enum_value enum_value_data;
     };
-};
+} ast_node_t;
 
-static void ast_print_node_type(const char *key, struct ast_node *n)
+static void ast_print_node_type(const char* key, struct ast_node* n)
 {
     printf("node type: %s -> %s\n", key, AST_NODE_TYPE_to_string(n->type));
 }
 
+int generate_ast(struct token* tokens, int num_tokens, struct linked_list** ll/*for freeing the whole tree*/, struct ast_node** root, bool);
 #endif
