@@ -18,7 +18,7 @@ static void verbose_printf(const char *format, ...)
 	va_start(va, format);
 	char buf[16384];
 	#ifdef VERBOSE
-	vsprintf(buf, format, va);
+	vsnprintf(buf, sizeof(buf), format, va);
 	printf("%s\n", buf);
 	#endif
 	va_end(va);
