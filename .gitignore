@@ -2,3 +2,14 @@ TAGS
 .ccls-cache/
 bin/
 \#*\#
+
+.vs/
+*.obj
+*.exe
+*.recipe
+*.ipdb
+*.log
+*.pdb
+*.iobj
+*.tlog
+*.txt
