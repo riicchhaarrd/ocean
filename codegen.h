@@ -43,5 +43,6 @@ ast_node_t* ast_tree_node_by_type(traverse_context_t* ctx, ast_node_t* head, int
 ast_node_t* ast_tree_node_by_identifier(traverse_context_t* ctx, ast_node_t* head, const char* id, int type);
 ast_node_t* ast_tree_traverse_get_visitee(traverse_context_t* ctx, size_t index);
 size_t ast_tree_nodes_by_type(traverse_context_t* ctx, ast_node_t* head, int type, ast_node_t** results, size_t maxresults);
+ast_node_t* ast_tree_node_by_node(traverse_context_t* ctx, ast_node_t* head, ast_node_t* node);
 
 #endif

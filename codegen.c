@@ -111,6 +111,13 @@ static int ast_filter_type(ast_node_t* n, int* ptype)
     return 0;
 }
 
+static int ast_filter_node(ast_node_t* n, ast_node_t *node)
+{
+    if (n == node)
+        return 1;
+    return 0;
+}
+
 static int ast_filter_identifier(ast_node_t* n, const char** id)
 {
     if (n->type == AST_IDENTIFIER && !strcmp(n->identifier_data.name, *id))
@@ -122,6 +129,12 @@ ast_node_t* ast_tree_node_by_type(traverse_context_t* ctx, ast_node_t* head, int
 {
     ctx->single_result = 1;
     return ast_tree_traverse(ctx, head, ast_filter_type, &type);
+}
+
+ast_node_t* ast_tree_node_by_node(traverse_context_t* ctx, ast_node_t* head, ast_node_t *node)
+{
+    ctx->single_result = 1;
+    return ast_tree_traverse(ctx, head, ast_filter_node, node);
 }
 
 size_t ast_tree_nodes_by_type(traverse_context_t* ctx, ast_node_t* head, int type, ast_node_t **results, size_t maxresults)
