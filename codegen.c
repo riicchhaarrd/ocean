@@ -96,6 +96,8 @@ ast_node_t *ast_tree_traverse(traverse_context_t *ctx, ast_node_t *head, travers
     ctx->userdata = userdata;
     if (setjmp(ctx->jmp))
     {
+        if (ctx->overflow)
+            return NULL;
         return ast_tree_traverse_get_visitee(ctx, 0);
     }
     traverse_node(ctx, head);
