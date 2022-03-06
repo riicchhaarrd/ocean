@@ -10,9 +10,9 @@ pre: parse.c lex.c pre.c
 	@echo "Building preprocessor"
 	@$(CC) -m64 $(CFLAGS) -DSTANDALONE parse.c lex.c pre.c -o bin/pre64
 
-compiler: main.c lex.c ast.c x86.c pe.c elf.c pre.c parse.c memory.c
+compiler: main.c lex.c ast.c compiler.c x64.c pe.c elf.c pre.c parse.c memory.c
 	@echo "Building compiler"
-	@$(CC) -m64 $(CFLAGS) main.c lex.c ast.c x86.c pe.c elf.c elf64.c pre.c parse.c memory.c -o bin/ocean64
+	@$(CC) -m64 $(CFLAGS) main.c lex.c ast.c compiler.c x64.c pe.c elf.c elf64.c pre.c parse.c memory.c -o bin/ocean64
 
 ast: main-ast.c lex.c ast.c pre.c parse.c
 	@echo "Building AST"

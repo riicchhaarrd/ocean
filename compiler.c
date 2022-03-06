@@ -1666,8 +1666,9 @@ static void compile_context_print(compiler_t *ctx, const char *format, ...)
 	#endif
 }
 
-int x86(struct ast_node *head, compiler_t *ctx)
+int compile_ast(struct ast_node *head, compiler_t *ctx, codegen_t *cg_)
 {
+	cg = cg_;
 	ctx->print = compile_context_print;
 	ctx->rvalue = rvalue;
 	ctx->lvalue = lvalue;

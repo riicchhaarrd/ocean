@@ -16,6 +16,7 @@
 #include "rhd/hash_map.h"
 
 #include "compile.h"
+#include "codegen.h"
 #include "rhd/hash_string.h"
 
 #ifdef _WIN32
@@ -25,7 +26,9 @@
 #endif
 
 // imported functions from other files
-int x86(struct ast_node *head, compiler_t *ctx);
+
+int compile_ast(struct ast_node *head, compiler_t *ctx, codegen_t*);
+void codegen_x64(codegen_t *cg);
 
 int opt_flags = 0;
 
@@ -205,7 +208,11 @@ int main( int argc, char** argv )
     {
 		// generate native code
 		heap_string data_buf = NULL;
-		int compile_status = x86( root, &ctx );
+
+		static codegen_t cg;
+		codegen_x64(&cg);
+		
+		int compile_status = compile_ast( root, &ctx, &cg );
 		if ( !compile_status )
 		{
             if ( (opt_flags & OPT_INSTR) != OPT_INSTR )
