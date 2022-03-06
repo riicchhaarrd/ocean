@@ -108,7 +108,6 @@ static void process_ast_node(ast_node_t* n)
             struct ast_node* lhs = n->bin_expr_data.lhs;
             struct ast_node* rhs = n->bin_expr_data.rhs;
             //float > int
-            if(lhs->)
         } break;
     }
 }
