@@ -35,6 +35,7 @@ enum
 
 int build_elf_image(compiler_t *ctx, const char *binary_path)
 {
+	assert(sizeof(struct phdr32) == 0x20);
     heap_string instr = ctx->instr;
     heap_string data_buf = ctx->data;
 	heap_string image = NULL;
