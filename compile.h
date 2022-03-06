@@ -62,10 +62,30 @@ struct function
     int localvariablesize;
 };
 
+typedef struct
+{
+    i32 data_index;
+    i32 ip;
+    int type;
+} reljmp_t;
+
+#define RJ_JNZ (1)
+#define RJ_JZ (2)
+
+#define RJ_JNE (1)
+#define RJ_JE (2)
+#define RJ_JL (4)
+#define RJ_JLE (8)
+#define RJ_JG (16)
+#define RJ_JGE (32)
+#define RJ_JMP (64)
+#define RJ_REVERSE (1<<30)
+
 struct scope
 {
     int numbreaks;
     intptr_t breaks[16]; //TODO: N number of breaks, dynamic array / stack 
+    reljmp_t* break_cond;
 };
 
 enum RELOC_TYPE
