@@ -35,6 +35,8 @@ enum
 
 int build_elf64_image(compiler_t *ctx, const char *binary_path)
 {
+	assert(sizeof(struct phdr64) == 0x38);
+	
     heap_string instr = ctx->instr;
 	#if 0
 	instr = NULL;
