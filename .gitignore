@@ -2,7 +2,7 @@ TAGS
 .ccls-cache/
 bin/
 \#*\#
-
+*~
 .vs/
 *.obj
 *.exe
