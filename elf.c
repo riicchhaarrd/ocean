@@ -7,31 +7,7 @@
 #include "rhd/std.h"
 #include "rhd/linked_list.h"
 #include "util.h"
-
-PACK(struct phdr32
-{
-    i32 p_type;
-    u32 p_offset;
-    u32 p_vaddr;
-    u32 p_paddr;
-    u32 p_filesz;
-    u32 p_memsz;
-    i32 p_flags;
-    u32 p_align;
-});
-
-enum
-{
-    PF_X = 0x1,
-    PF_W = 0x2,
-    PF_R = 0x4
-};
-
-enum
-{
-    PT_NULL = 0x0,
-    PT_LOAD = 0x1
-};
+#include "elf.h"
 
 int build_elf_image(compiler_t *ctx, const char *binary_path)
 {
