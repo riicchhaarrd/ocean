@@ -145,5 +145,9 @@ typedef struct compiler_s
 
     void* find_import_fn_userptr;
     find_import_fn_t find_import_fn;
+	int (*rvalue)(struct compiler_s *ctx, reg_t reg, struct ast_node *n);
+	int (*lvalue)(struct compiler_s *ctx, reg_t reg, struct ast_node *n);
+	
+	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
 } compiler_t;
 #endif

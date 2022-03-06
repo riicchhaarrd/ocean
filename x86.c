@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include "ast.h"
 #include "types.h"
 #include "token.h"
@@ -6,12 +7,28 @@
 #include "compile.h"
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
+#include "codegen.h"
+
+//TODO: FIXME this is not really "safe", but if just compile once then exit the process this is fine.
+//if you have multiple instances of the compiler running simultaneously then you should fix this.
+static codegen_t *cg = NULL;
 
 struct ast_node *get_struct_member_info(compiler_t* ctx, struct ast_struct_decl *decl, const char *member_name, int *offset, int *size);
 
-int instruction_position(compiler_t *ctx)
+static void set8(compiler_t *ctx, int offset, u8 op)
 {
-    return heap_string_size(&ctx->instr);
+    ctx->instr[offset] = op;
+}
+
+static void set32(compiler_t *ctx, int offset, u32 value)
+{
+    u32 *ptr = (u32*)&ctx->instr[offset];
+    *ptr = value;
+}
+
+static void db(compiler_t *ctx, u8 op)
+{
+    heap_string_push(&ctx->instr, op);
 }
 
 static void dd(compiler_t *ctx, u32 i)
@@ -26,40 +43,9 @@ static void dd(compiler_t *ctx, u32 i)
 		heap_string_push(&ctx->instr, u.b[i]);
 }
 
-static void dw(compiler_t *ctx, u16 i)
+static int instruction_position(compiler_t *ctx)
 {
-    union
-    {
-        uint16_t s;
-        uint8_t b[2];
-    } u = { .s = i };
-
-    heap_string_push(&ctx->instr, u.b[0]);
-    heap_string_push(&ctx->instr, u.b[1]);
-}
-
-static void db(compiler_t *ctx, u8 op)
-{
-    heap_string_push(&ctx->instr, op);
-}
-
-static void set8(compiler_t *ctx, int offset, u8 op)
-{
-    ctx->instr[offset] = op;
-}
-
-static void set32(compiler_t *ctx, int offset, u32 value)
-{
-    u32 *ptr = (u32*)&ctx->instr[offset];
-    *ptr = value;
-}
-
-static void buf(compiler_t *ctx, const char *buf, size_t len)
-{
-    for(size_t i = 0; i < len; ++i)
-    {
-		heap_string_push(&ctx->instr, buf[i] & 0xff);
-    }
+    return heap_string_size(&ctx->instr);
 }
 
 struct function* lookup_function_by_name(compiler_t *ctx, const char *name)
@@ -160,88 +146,6 @@ static int data_type_pass_by_reference(struct ast_node *n)
     return 1;
 }
 
-//TODO: implement all opcodes we'll be using so we can keep track of the registers and their values
-//TODO: replace our "real" registers with "virtual" registers
-
-static void push(compiler_t *ctx, reg_t reg)
-{
-    db(ctx, 0x50 + reg);
-    ctx->registers[ESP] -= 4;
-}
-
-static void inc(compiler_t *ctx, reg_t reg)
-{
-    db(ctx, 0x40 + reg);
-}
-
-static void pop(compiler_t *ctx, reg_t reg)
-{
-    db(ctx, 0x58 + reg);
-    ctx->registers[ESP] += 4;
-}
-
-static void mov_r_imm32(compiler_t *ctx, reg_t reg, i32 imm)
-{
-    ctx->registers[reg] = imm;
-    db(ctx, 0xb8 + reg);
-    dd(ctx, imm);
-}
-
-static void add(compiler_t *ctx, reg_t a, reg_t b)
-{
-    ctx->registers[a] += ctx->registers[b];
-    db(ctx, 0x01);
-    db(ctx, 0xc0 + b * 9 + a);
-}
-
-static void xor(compiler_t *ctx, reg_t a, reg_t b)
-{
-    assert(a == EAX && b == EAX);
-    ctx->registers[a] ^= ctx->registers[b];
-	db( ctx, 0x31 );
-	db( ctx, 0xc0 + b * 9 + a );
-}
-
-static void sub(compiler_t *ctx, reg_t a, reg_t b)
-{
-    ctx->registers[a] += ctx->registers[b];
-    db(ctx, 0x29);
-    db(ctx, 0xc0 + b * 9 + a);
-}
-
-static int add_data(compiler_t *ctx, void *data, u32 data_size)
-{
-    int curpos = heap_string_size(&ctx->data);
-    heap_string_appendn(&ctx->data, data, data_size);
-	return curpos;
-}
-
-static void mov_r_string(compiler_t *ctx, reg_t reg, const char *str)
-{
-	db( ctx, 0xb8 + reg);
-	int from = instruction_position( ctx );
-	dd( ctx, 0xcccccccc ); // placeholder
-
-    //TODO: FIXME reloc the register we're keeping track of aswell to the correct to be determined memory location
-    ctx->registers[reg] = (intptr_t)str;
-    int to, sz;
-    if(strlen(str) > 0)
-	{
-		sz = strlen( str ) + 1;
-		to = add_data( ctx, (void*)str, sz );
-	} else
-	{
-		sz = 0;
-        to = 0;
-	}
-
-	// TODO: FIXME make it cleaner and add just a function call before the placeholder inject/xref something
-	// and make it work with any type of data so it can go into the .data segment
-
-	struct relocation reloc = { .from = from, .to = to, .size = sz, .type = RELOC_DATA };
-	linked_list_prepend( ctx->relocations, reloc );
-}
-
 static int process(compiler_t *ctx, struct ast_node *n);
 
 typedef enum
@@ -294,45 +198,35 @@ static int function_call_ident(compiler_t *ctx, const char *function_name, struc
     {
     default:
         printf("invalid function call, got result %d\n", function_call_type);
-        db(ctx, 0xcc);
-        db(ctx, 0xcc);
-        db(ctx, 0xcc);
+		cg->int3(ctx);
+		cg->int3(ctx);
+		cg->int3(ctx);
         return 1;
         break;
 
+#if 0
     case FUNCTION_CALL_IMPORT:
     {
+		//TODO: FIXME atm highly specialized for memory/win32, see memory.c also assumes that location is n + 6
         //TODO: FIXME make it work for building exe files aswell, e.g proper IAT thunk table
         for (int i = 0; i < numargs; ++i)
         {
             process(ctx, args[numargs - i - 1]);
-            //push eax
-            db(ctx, 0x50);
+			cg->push(ctx, EAX);
         }
 
-        //db(ctx, 0xcc);
-
-        db(ctx, 0xff);
-        db(ctx, 0x15);
-        int from = instruction_position(ctx);
-        dd(ctx, 0x0); //pointer to location P
-        
-        //jmp 6
-        db(ctx, 0xeb);
-        db(ctx, 0x04);
+		int from;
+		int nbytes = cg->indirect_call_imm32(ctx, 0x0, &from);
+		cg->jmp(ctx, nbytes);
 
         //location P
         //actual location of imported function
         dd(ctx, 0x0);
 
-        //db(ctx, 0xcc);
-
         if (numargs > 0)
         {
-            // add esp, 4
-            db(ctx, 0x83);
-            db(ctx, 0xc4);
-            db(ctx, numargs * 4);
+			//TODO: generalize
+			cg->add_imm8_to_r32(ctx, ESP, numargs * 4);
         }
 
         struct relocation reloc = {
@@ -343,10 +237,11 @@ static int function_call_ident(compiler_t *ctx, const char *function_name, struc
         };
         linked_list_prepend(ctx->relocations, reloc);
     } break;
+#endif
 
     case FUNCTION_CALL_INT3:
-        if (opt_flags & OPT_DEBUG)
-            db(ctx, 0xcc); //int3
+        //if (opt_flags & OPT_DEBUG)
+			cg->int3(ctx);
         break;
 
     case FUNCTION_CALL_NORMAL:
@@ -354,54 +249,20 @@ static int function_call_ident(compiler_t *ctx, const char *function_name, struc
         for (int i = 0; i < numargs; ++i)
         {
             process(ctx, args[numargs - i - 1]);
-            //push eax
-            db(ctx, 0x50);
+			cg->push(ctx, EAX);
         }
 
-        int t = instruction_position(ctx);
-        db(ctx, 0xe8);
-        dd(ctx, fn->location - t - 5);
+		cg->call_imm32(ctx, fn->location);
 
         if (numargs > 0)
         {
-            // add esp, 4
-            db(ctx, 0x83);
-            db(ctx, 0xc4);
-            db(ctx, numargs * 4);
+			//TODO: FIXME numargs > 0xff
+			cg->add_imm8_to_r32(ctx, ESP, numargs * 4);
         }
     } break;
 
     case FUNCTION_CALL_SYSCALL:
-        assert(numargs > 0);
-
-        for (int i = 0; i < 6 - numargs; ++i)
-        {
-            xor (ctx, EAX, EAX);
-            push(ctx, EAX);
-        }
-        for (int i = 0; i < numargs; ++i)
-        {
-            rvalue(ctx, EAX, args[numargs - i - 1]);
-            push(ctx, EAX);
-        }
-
-        //TODO: FIXME arg5 (%ebp) is on the stack //ebp
-        pop(ctx, EAX);
-        pop(ctx, EBX);
-        pop(ctx, ECX);
-        pop(ctx, EDX);
-        pop(ctx, ESI);
-        pop(ctx, EDI);
-
-        /*
-        for(int i = 0; i < numargs; ++i)
-        {
-            printf("arg%d=%s (var=%s)\n",i,AST_NODE_TYPE_to_string(args[i]->type),args[i]->type==AST_IDENTIFIER?args[i]->identifier_data.name : "[n/a]");
-        }
-        */
-
-        db(ctx, 0xcd); //int 0x80
-        db(ctx, 0x80);
+        cg->invoke_syscall(ctx, args, numargs);
         break;
     }
     return 0;
@@ -566,7 +427,7 @@ int lvalue(compiler_t *ctx, reg_t reg, struct ast_node *n);
 void store_operand(compiler_t *ctx, struct ast_node *n);
 static void ast_handle_assignment_expression( compiler_t* ctx, struct ast_node* n )
 {
-    push(ctx, EBX);
+    cg->push(ctx, EBX);
 	struct ast_node* lhs = n->assignment_expr_data.lhs;
 	struct ast_node* rhs = n->assignment_expr_data.rhs;
 
@@ -577,116 +438,91 @@ static void ast_handle_assignment_expression( compiler_t* ctx, struct ast_node* 
 	{
 	case TK_PLUS_ASSIGN:
 	{
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
 		// load_variable(ctx, EBX, 1, lhs, 0);
-		pop( ctx, EAX );
-
-		// add [ebx],eax
-		db( ctx, 0x01 );
-		db( ctx, 0x03 );
+		cg->pop( ctx, EAX );
+		
+		cg->load_reg(ctx, EAX, EBX);
+		cg->add(ctx, EBX, EAX);
+		cg->store_reg(ctx, EBX, EAX);
 	}
 	break;
 	case TK_MINUS_ASSIGN:
 	{
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
 		// load_variable(ctx, EBX, 1, lhs, 0);
-		pop( ctx, EAX );
-		// sub [ebx],eax
-		db( ctx, 0x29 );
-		db( ctx, 0x03 );
+		cg->pop( ctx, EAX );
+		
+		cg->load_reg(ctx, EAX, EBX);
+		cg->sub(ctx, EBX, EAX);
+		cg->store_reg(ctx, EBX, EAX);
 	}
 	break;
 		// TODO: add mul and other operators
 
 	case TK_MOD_ASSIGN:
 	{
-		// mov esi, eax
-		db( ctx, 0x89 );
-		db( ctx, 0xc6 );
-
+		cg->mov(ctx, ESI, EAX);
 		// TODO: maybe push esi, incase we trash the register
 		rvalue( ctx, EAX, lhs );
+		cg->xor(ctx, EDX, EDX);
+		
+		cg->idiv(ctx, ESI);
 
-		// xor edx,edx
-		db( ctx, 0x31 );
-		db( ctx, 0xd2 );
-
-		// idiv esi
-		db( ctx, 0xf7 );
-		db( ctx, 0xfe );
-
-		push( ctx, EDX );
+		cg->push( ctx, EDX );
 		lvalue( ctx, EBX, lhs );
-		pop( ctx, EDX );
+		cg->pop( ctx, EDX );
 
-		// mov [ebx],edx
-		db( ctx, 0x89 );
-		db( ctx, 0x13 );
+		cg->store_reg(ctx, EBX, EDX);
 	}
 	break;
 
 	case TK_DIVIDE_ASSIGN:
 	{
-		// mov esi, eax
-		db( ctx, 0x89 );
-		db( ctx, 0xc6 );
+		cg->mov(ctx, ESI, EAX);
 
 		// TODO: maybe push esi, incase we trash the register
 		rvalue( ctx, EAX, lhs );
 
-		// xor edx,edx
-		db( ctx, 0x31 );
-		db( ctx, 0xd2 );
+		cg->xor(ctx, EDX, EDX);
 
-		// idiv esi
-		db( ctx, 0xf7 );
-		db( ctx, 0xfe );
+		cg->idiv(ctx, ESI);
 
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
-		pop( ctx, EAX );
-
-		// mov [ebx],eax
-		db( ctx, 0x89 );
-		db( ctx, 0x03 );
+		cg->pop( ctx, EAX );
+		
+		cg->store_reg(ctx, EBX, EAX);
 	}
 	break;
 
 	case TK_MULTIPLY_ASSIGN:
 	{
-		// mov esi, eax
-		db( ctx, 0x89 );
-		db( ctx, 0xc6 );
+		cg->mov(ctx, ESI, EAX);
 
 		// TODO: maybe push esi, incase we trash the register
 		rvalue( ctx, EAX, lhs );
+		
+		cg->xor(ctx, EDX, EDX);
 
-		// xor edx,edx
-		db( ctx, 0x31 );
-		db( ctx, 0xd2 );
+		cg->imul(ctx, ESI);
 
-		// imul esi
-		db( ctx, 0xf7 );
-		db( ctx, 0xee );
-
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
-		pop( ctx, EAX );
-
-		// mov [ebx],eax
-		db( ctx, 0x89 );
-		db( ctx, 0x03 );
+		cg->pop( ctx, EAX );
+		
+		cg->store_reg(ctx, EBX, EAX);
 	}
 	break;
 
 	case '=':
 	{
 		int os = data_type_operand_size( ctx, lhs, 1 );
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		lvalue( ctx, EBX, lhs );
-		pop( ctx, EAX );
+		cg->pop( ctx, EAX );
 		store_operand( ctx, lhs );
 	}
 	break;
@@ -695,7 +531,7 @@ static void ast_handle_assignment_expression( compiler_t* ctx, struct ast_node* 
 		printf( "unhandled assignment operator\n" );
 		break;
 	}
-    pop(ctx, EBX);
+    cg->pop(ctx, EBX);
 }
 
 
@@ -706,9 +542,7 @@ void store_operand(compiler_t *ctx, struct ast_node *n)
 	switch ( os )
 	{
 	case 4:
-		// mov [ebx],eax
-		db( ctx, 0x89 );
-		db( ctx, 0x03 );
+		cg->store_reg(ctx, EBX, EAX);
 		break;
     case 2:
 		// mov word ptr [ebx], ax
@@ -742,9 +576,7 @@ static int load_operand(compiler_t *ctx, struct ast_node *n)
 	switch ( os )
 	{
 	case 4:
-		// mov eax, [ebx]
-		db( ctx, 0x8b );
-		db( ctx, 0x03 );
+		cg->load_reg(ctx, EAX, EBX);
 		break;
     case 2:
 		// movzx eax, word [ebx]
@@ -772,15 +604,14 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
     switch(n->type)
 	{
 	case AST_LITERAL:
-		// mov eax,imm32
 		switch ( n->literal_data.type )
 		{
 		case LITERAL_INTEGER:
-            mov_r_imm32(ctx, reg, n->literal_data.integer);
+            cg->mov_r_imm32(ctx, reg, n->literal_data.integer, NULL);
 			break;
 		case LITERAL_STRING:
 		{
-            mov_r_string(ctx, reg, n->literal_data.string);
+            cg->mov_r_string(ctx, reg, n->literal_data.string);
 		}
 		break;
 		default:
@@ -802,40 +633,28 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 		{
         case AST_ARRAY_DATA_TYPE:
 			// lea r32,[ebp - offset]
-
-            // handles only byte size offset
-			//db( ctx, 0x8d );
-			//db( ctx, 0x45 + 8 * reg );
-			//db( ctx, offset );
-
-			// lea r32,[ebp - offset]
-			db(ctx, 0x8d);
-			db(ctx, 0x85 + 8 * reg);
-			dd(ctx, offset);
+			//db(ctx, 0x8d);
+			//db(ctx, 0x85 + 8 * reg);
+			//dd(ctx, offset);
+			//basically same as lea, except with more steps
+			cg->mov(ctx, reg, EBP);
+			cg->sub_regn_imm32(ctx, reg, offset);
 			break;
             
         default:
 		{
-			int os = data_type_operand_size( ctx, n, 1 );
-            switch(os)
+			int nbytes = data_type_operand_size( ctx, n, 1 );
+            switch(nbytes)
 			{
             case 4:
-				/* // mov r32,[ebp - offset] */
-				/* db( ctx, 0x8b ); */
-				/* db( ctx, 0x45 + 8 * reg ); */
-				/* db( ctx, offset ); */
-                
-				// mov r32,[ebp - offset]
-				db(ctx, 0x8b);
-				db(ctx, 0x85 + 8 * reg);
-				dd(ctx, offset);
+				cg->load_regn_base_offset_imm32(ctx, reg, offset);
 				break;
             case 2:
             case 1:
-                push(ctx,EBX);
+                cg->push(ctx,EBX);
                 lvalue(ctx,EBX,n);
                 load_operand(ctx, n);
-                pop(ctx,EBX);
+                cg->pop(ctx,EBX);
                 break;
             default:
                 perror("unhandled case for loading identifier rvalue");
@@ -854,9 +673,7 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
         struct ast_node *alternative = n->ternary_expr_data.alternative;
 
         process(ctx, condition);
-		// test eax,eax
-		db( ctx, 0x85 );
-		db( ctx, 0xc0 );
+		cg->test(ctx, EAX, EAX);
 
 		// jz rel32
 		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
@@ -881,55 +698,38 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 
         rvalue(ctx, EAX, lhs);
         
-        push( ctx, EAX );
+        cg->push( ctx, EAX );
 		rvalue( ctx, EAX, rhs );
-		// mov ecx,eax
-		db( ctx, 0x89 );
-		db( ctx, 0xc1 );
+		cg->mov(ctx, ECX, EAX);
         
-		pop( ctx, EAX );
+		cg->pop( ctx, EAX );
 
-        //xor edx,edx
-        db(ctx, 0x31);
-        db(ctx, 0xd2);
+		cg->xor(ctx, EDX, EDX);
 
-        //xor edx,edx
-        //db(ctx, 0x31);
-        //db(ctx, 0xd2);
-
+		reljmp_t rel;
         switch(n->bin_expr_data.operator)
         {
         case '*':
-            //imul ecx
-            db(ctx, 0xf7);
-            db(ctx, 0xe9);
+			cg->imul(ctx, ECX);
             break;
         case '/':
-            //idiv ecx
-            db(ctx, 0xf7);
-            db(ctx, 0xf9);
+			cg->idiv(ctx, ECX);
             break;
 
         case '+':
-            db(ctx, 0x01);
-            db(ctx, 0xc8);
+			cg->add(ctx, EAX, ECX);
             break;
         case '-':
-            db(ctx, 0x29);
-            db(ctx, 0xc8);
+			cg->sub(ctx, EAX, ECX);
             break;
         case '&':
-            db(ctx, 0x21);
-            db(ctx, 0xc8);
-            break;
+			cg->and(ctx, EAX, ECX);
             break;
         case '|':
-            db(ctx, 0x09);
-            db(ctx, 0xc8);
+			cg->or(ctx, EAX, ECX);
             break;
         case '^':
-            db(ctx, 0x31);
-            db(ctx, 0xc8);
+			cg->xor(ctx, EAX, ECX);
             break;
         case TK_LSHIFT:
             db(ctx, 0xd3);
@@ -940,175 +740,68 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
             db(ctx, 0xf8);
             break;
         case '%':
-            db(ctx, 0xf7);
-            db(ctx, 0xf9);
-            db(ctx, 0x89);
-            db(ctx, 0xd0);
+			//idiv(ctx, ECX);
+			//mov(ctx, EAX, EDX);
+			//TODO: FIXME other architectures won't neccessarily put the remainder into EDX
+			
+			//do this for other cases aswell and TODO generalize more e.g mov(ctx, REG0, add(REG1, REG2))
+			//mod returns the register that the remainder is placed into
+			//then when doing mov with same register, don't emit any extra opcodes
+			
+			//for now just pass the default registers that x86 expects
+			//TODO: FIXME what if the result is seperated over 2 registers e.g EAX:EDX, register structure with flags which one is enabled? for now just use 1
+			//mov(ctx, EAX, mod(ctx, EAX, ECX));
+			cg->mod(ctx, EAX, ECX);
             break;
 
-        case TK_GEQUAL:
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jl <relative offset>
-            db(ctx, 0x7c);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-            
         case TK_LEQUAL:
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jg <relative offset>
-            db(ctx, 0x7f);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-            
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JG);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+		break;
+		
         case '>':
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jle <relative offset>
-            db(ctx, 0x7e);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-            
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JLE);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+			break;
         case '<':
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jge <relative offset>
-            db(ctx, 0x7d);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            break;
-            
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JGE);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+		break;
         case TK_EQUAL:
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //jne <relative offset>
-            db(ctx, 0x75);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);            
-            break;
-            
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JNE);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+			break;
         case TK_NOT_EQUAL:
-            //cmp eax,ecx
-            db(ctx, 0x39);
-            db(ctx, 0xc8);
-            
-            //je <relative offset>
-            db(ctx, 0x74);
-            db(ctx, 0x5);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);
-            
-            //inc eax
-            db(ctx, 0x40);
-            
-            //jmp
-            db(ctx, 0xeb);
-            db(ctx, 0x02);
-            
-            //xor eax,eax
-            db(ctx, 0x31);
-            db(ctx, 0xc0);            
-            break;
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JE);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+			break;
+        case TK_GEQUAL:
+			cg->cmp(ctx, EAX, ECX);
+			cg->xor(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JL);
+				cg->inc(ctx, EAX);
+			cg->jmp_end(ctx, &rel);
+			break;
 
         default:
             printf("unhandled operator (%d) %c\n", n->bin_expr_data.operator, n->bin_expr_data.operator);
             break;
         }
-
-        //mov eax,edx
-        //db(ctx, 0x89);
-        //db(ctx, 0xd0);
-            
     } break;
 
     case AST_ASSIGNMENT_EXPR:
@@ -1142,25 +835,19 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
             break;
 		}
         assert(sz>0);
-
-        //mov eax,imm32
-        db(ctx, 0xb8);
-        dd(ctx, sz);
+		cg->mov_r_imm32(ctx, EAX, sz, NULL);
 	} break;
 
     case AST_STRUCT_MEMBER_EXPR:
     {
-        push(ctx, EBX);
+        cg->push(ctx, EBX);
         struct ast_node *object = n->member_expr_data.object;
 		struct ast_node *dn = identifier_data_node(ctx, object);
         //ast_print_node_type("object", dn);
 		if ( dn->type == AST_POINTER_DATA_TYPE )
         {
 			rvalue( ctx, EAX, object );
-
-			// mov ebx, eax
-			db( ctx, 0x89 );
-			db( ctx, 0xc3 );
+			cg->mov(ctx, EBX, EAX);
 		}
 		else
 			lvalue( ctx, EBX, object );
@@ -1176,19 +863,16 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 		struct ast_node *field = get_struct_member_info(ctx, &sr->struct_decl_data, n->member_expr_data.property->identifier_data.name, &off,
 							   &sz);
 		assert(sz > 0);
-
-		// add ebx, imm32
-		db(ctx, 0x81);
-		db(ctx, 0xc3);
-		dd(ctx, off);
+		
+		cg->add_imm32_to_r32(ctx, EBX, off);
 
 		load_operand(ctx, field->variable_decl_data.data_type);
-        pop(ctx, EBX);
+        cg->pop(ctx, EBX);
 	} break;    
 
     case AST_MEMBER_EXPR:
     {
-        push(ctx, EBX);
+        cg->push(ctx, EBX);
         struct ast_node *object = n->member_expr_data.object;
         struct ast_node *property = n->member_expr_data.property;
 		struct ast_node *dn = identifier_data_node(ctx, object);
@@ -1196,10 +880,8 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 		if ( dn->type == AST_POINTER_DATA_TYPE )
         {
 			rvalue( ctx, EAX, object );
-
-			// mov ebx, eax
-			db( ctx, 0x89 );
-			db( ctx, 0xc3 );
+			
+			cg->mov(ctx, EBX, EAX);
 		}
 		else
 			lvalue( ctx, EBX, object );
@@ -1208,21 +890,16 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
         
 		int os = data_type_operand_size( ctx, object, 0 );
 
-		push( ctx, ESI );
+		cg->push( ctx, ESI );
+		cg->mov_r_imm32(ctx, ESI, os, NULL);
+		
+		cg->imul(ctx, ESI);
         
-		// mov esi, imm32
-		db( ctx, 0xbe );
-		dd( ctx, os );
+		cg->pop( ctx, ESI );
         
-		// imul esi
-		db( ctx, 0xf7 );
-		db( ctx, 0xee );
-        
-		pop( ctx, ESI );
-        
-        add( ctx, EBX, reg );
+        cg->add( ctx, EBX, reg );
         load_operand(ctx, dn);
-        pop(ctx, EBX);
+        cg->pop(ctx, EBX);
 	} break;
     
     case AST_UNARY_EXPR:
@@ -1233,31 +910,19 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
             switch(n->unary_expr_data.operator)
             {
             case '-':
-                //neg eax
-                //db(ctx, 0xf7);
-                //db(ctx, 0xd8);
-                
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, -arg->literal_data.integer);
+				cg->mov_r_imm32(ctx, EAX, -arg->literal_data.integer, NULL);
                 break;
                 
             case '+':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, arg->literal_data.integer);
+				cg->mov_r_imm32(ctx, EAX, arg->literal_data.integer, NULL);
                 break;
 
             case '!':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, !arg->literal_data.integer);
+				cg->mov_r_imm32(ctx, EAX, !arg->literal_data.integer, NULL);
                 break;
                 
             case '~':
-                //mov eax,imm32
-                db(ctx, 0xb8);
-                dd(ctx, ~arg->literal_data.integer);
+				cg->mov_r_imm32(ctx, EAX, ~arg->literal_data.integer, NULL);
                 break;
 
 			default:
@@ -1282,20 +947,16 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 					{
 						struct ast_node* pparg = arg->unary_expr_data.argument;
 						assert(!arg->unary_expr_data.prefix);
-						push( ctx, EBX );
+						cg->push( ctx, EBX );
 						// let's assume pparg is a identifier of type const char *
 						lvalue( ctx, EBX, pparg );
                         
                         //save our ptr to our variable to edx
-						push(ctx, EDX);
-						// lea edx,[ebx]
-						db( ctx, 0x8d );
-						db( ctx, 0x13 );
+						cg->push(ctx, EDX);
+						cg->mov(ctx, EDX, EBX);
 
                         //load the actual char * pointer e.g "test" into ebx
-						// mov ebx,[ebx]
-						db( ctx, 0x8b );
-						db( ctx, 0x1b );
+						cg->load_reg(ctx, EBX, EBX);
 
                         //then load our value from ebx (can be a char, int or any type, in this case char 8 bits)
 						int os = load_operand( ctx, pparg ); //loads location in EBX into EAX register
@@ -1303,14 +964,17 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
                         
                         //increment the actual pointer value of our string
                         
-						// inc [edx]
-						db( ctx, 0xff );
-						db( ctx, 0x02 );
+						//basically inc [edx]
+						cg->push(ctx, EAX);
+						cg->load_reg(ctx, EAX, EDX);
+						cg->inc(ctx, EAX);
+						cg->store_reg(ctx, EDX, EAX);
+						cg->pop(ctx, EAX);
 
                         //restore our EDX value if we ever used it for anything else.
-                        pop(ctx, EDX);
+                        cg->pop(ctx, EDX);
                         
-						pop( ctx, EBX );
+						cg->pop( ctx, EBX );
 					}
 					break;
 
@@ -1321,55 +985,55 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 				}
 				else
 				{
-					push( ctx, EBX );
+					cg->push( ctx, EBX );
 					rvalue( ctx, reg, n->unary_expr_data.argument );
-					// mov ebx,eax
-					db( ctx, 0x89 );
-					db( ctx, 0xc3 );
+					cg->mov(ctx, EBX, EAX);
 					load_operand( ctx, n->unary_expr_data.argument );
-					pop( ctx, EBX );
+					cg->pop( ctx, EBX );
 				}
 			} break;
 
             case TK_PLUS_PLUS:
 				// handle generic ++ case
-				push( ctx, EBX );
+				cg->push( ctx, EBX );
 				lvalue( ctx, EBX, n->unary_expr_data.argument );
 				if(!n->unary_expr_data.prefix)
 				{
 					load_operand( ctx, n->unary_expr_data.argument );
-					// inc [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x03 );
+					cg->push(ctx, EAX);
+					cg->load_reg(ctx, EAX, EBX);
+					cg->inc(ctx, EAX);
+					cg->store_reg(ctx, EBX, EAX);
+					cg->pop(ctx, EAX);
 				} else
 				{
-					// inc [ebx]
-					db( ctx, 0xff );
-					db( ctx, 0x03 );
+					cg->push(ctx, EAX);
+					cg->load_reg(ctx, EAX, EBX);
+					cg->inc(ctx, EAX);
+					cg->store_reg(ctx, EBX, EAX);
+					cg->pop(ctx, EAX);
 					load_operand( ctx, n->unary_expr_data.argument );
 				}
-				pop( ctx, EBX );
+				cg->pop( ctx, EBX );
 				break;
 			case '&':
-                push(ctx, EBX);
+                cg->push(ctx, EBX);
 				lvalue( ctx, EBX, n->unary_expr_data.argument );
 				if ( reg == EAX )
 				{
-					// mov eax,ebx
-					db( ctx, 0x89 );
-					db( ctx, 0xd8 );
+					cg->mov(ctx, EAX, EBX);
 				}
-				pop( ctx, EBX );
+				cg->pop( ctx, EBX );
 				break;
                 
 			case '-':
                 rvalue(ctx, EAX, arg);
-                //neg eax
-                db(ctx, 0xf7);
-                db(ctx, 0xd8);
+				cg->neg(ctx, EAX);
                 break;
             case '!':
             case '~':
+				perror("unhandled");
+				/*
                 rvalue(ctx, EAX, arg);
                 if(n->unary_expr_data.operator=='!')
                 {
@@ -1393,17 +1057,18 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 					db( ctx, 0xf7 );
 					db( ctx, 0xd0 );
 				}
+				*/
 				break;
 
 			default:
-				push( ctx, EBX );
+				cg->push( ctx, EBX );
 				if ( lvalue( ctx, EBX, n ) )
 				{
 					debug_printf( "unhandled unary expression '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 					abort();
 				}
                 load_operand(ctx, n);
-				pop( ctx, EBX );
+				cg->pop( ctx, EBX );
 				break;
 			}
 		}
@@ -1434,23 +1099,23 @@ int rvalue(compiler_t *ctx, reg_t reg, struct ast_node *n)
 	{
         struct ast_node *expr = n->seq_expr_data.expr[0];
         rvalue(ctx, reg, expr);
-        push(ctx, EAX);
+        cg->push(ctx, EAX);
         for(int i = 1; i < n->seq_expr_data.numexpr; ++i)
 		{
             rvalue(ctx, reg, n->seq_expr_data.expr[i]);
 		}
-		pop(ctx, EAX);
+		cg->pop(ctx, EAX);
 	} break;
 
 	default:
-        push(ctx, EBX);
+        cg->push(ctx, EBX);
         if(lvalue(ctx, EBX, n))
 		{
 			debug_printf( "unhandled rvalue '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
 			exit( -1 );
 		}
         load_operand(ctx, n);
-        pop(ctx, EBX);
+        cg->pop(ctx, EBX);
 		return 1;
 	}
     return 0;
@@ -1485,16 +1150,9 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 		assert( var );
         struct ast_node *variable_type = var->data_type_node;
         int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
-        
-		/* // lea r32,[ebp - offset] */
-		/* db( ctx, 0x8d ); */
-		/* db( ctx, 0x45 + 8 * reg ); */
-		/* db( ctx, offset ); */
-        
-		// lea r32,[ebp - offset]
-		db(ctx, 0x8d);
-		db(ctx, 0x85 + 8 * reg);
-		dd(ctx, offset);
+
+		cg->mov(ctx, reg, EBP);
+		cg->sub_regn_imm32(ctx, reg, offset);
 	} break;
     
 	case AST_STRUCT_MEMBER_EXPR:
@@ -1565,7 +1223,7 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 			assert(sz > 0);
 			// printf("offset = %d, sz = %d for '%s'\n", off, sz, n->member_expr_data.property->identifier_data.name);
 
-			push(ctx, EAX);
+			cg->push(ctx, EAX);
 			if (dn->type == AST_POINTER_DATA_TYPE)
 			{
                 //should be good to go for identifiers, most of the rvalue values are still hardcoded to EAX though...
@@ -1574,13 +1232,10 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 			}
 			else
 				lvalue(ctx, reg, object);
+			
+			cg->add_imm32_to_r32(ctx, EBX, off);
 
-			// add ebx, imm32
-			db(ctx, 0x81);
-			db(ctx, 0xc3);
-			dd(ctx, off);
-
-			pop(ctx, EAX);
+			cg->pop(ctx, EAX);
 		}
 		break;
 		}
@@ -1597,7 +1252,7 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 		{
 		case AST_ARRAY_DATA_TYPE:
 		case AST_POINTER_DATA_TYPE: //only when it's a pointer to an primtive array type e.g const char * or int *
-			push(ctx, EAX);
+			cg->push(ctx, EAX);
 			if (dn->type == AST_POINTER_DATA_TYPE)
 			{
                 //should be good to go for identifiers, most of the rvalue values are still hardcoded to EAX though...
@@ -1610,20 +1265,13 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 
 			int os = data_type_operand_size(ctx, object, 0);
 
-			push(ctx, ESI);
+			cg->push(ctx, ESI);
+			cg->mov(ctx, ESI, os);
+			cg->imul(ctx, ESI);
+			cg->pop(ctx, ESI);
 
-			// mov esi, imm32
-			db(ctx, 0xbe);
-			dd(ctx, os);
-
-			// imul esi
-			db(ctx, 0xf7);
-			db(ctx, 0xee);
-
-			pop(ctx, ESI);
-
-			add(ctx, EBX, EAX);
-			pop(ctx, EAX);
+			cg->add(ctx, EBX, EAX);
+			cg->pop(ctx, EAX);
 
 			break;
         default:
@@ -1641,9 +1289,7 @@ int lvalue( compiler_t* ctx, reg_t reg, struct ast_node* n )
 		{
 		case '*':
 			lvalue( ctx, reg, n->unary_expr_data.argument );
-			// mov ebx, [ebx]
-			db( ctx, 0x8b );
-			db( ctx, 0x1b );
+			cg->load_reg(ctx, EBX, EBX);
 			break;
 
 		default:
@@ -1721,7 +1367,7 @@ static int process(compiler_t *ctx, struct ast_node *n)
     {
     case AST_EMIT:
     {
-        db(ctx, n->emit_data.opcode);
+		perror("emit is removed");
     } break;
 
     case AST_STRUCT_DECL:
@@ -1740,25 +1386,20 @@ static int process(compiler_t *ctx, struct ast_node *n)
         struct ast_node *alternative = n->if_stmt_data.alternative;
 
         rvalue(ctx, EAX, condition);
-		// test eax,eax
-		db( ctx, 0x85 );
-		db( ctx, 0xc0 );
+		cg->test(ctx, EAX, EAX);
+		reljmp_t rel;
+		
+		cg->jmp_begin(ctx, &rel, RJ_JZ);
+			process(ctx, consequent);
+		cg->jmp_end(ctx, &rel);
 
-		// jz rel32
-		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
-		db( ctx, 0x0f );
-		db( ctx, 0x84 );
-		dd( ctx, 0x0 ); // placeholder
-        
-        process(ctx, consequent);
-        
-		int jmp_pos = instruction_position( ctx );
-		db( ctx, 0xe9 );
-		dd( ctx, 0x0 ); // placeholder
-		set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
-		if ( alternative ) //should work
-			process( ctx, alternative );
-		set32( ctx, jmp_pos + 1, instruction_position( ctx ) - jmp_pos - 5 );
+		//TODO: FIXME not optimized
+		if ( alternative )
+		{
+			cg->jmp_begin(ctx, &rel, RJ_JNZ);
+				process(ctx, alternative);
+			cg->jmp_end(ctx, &rel);
+		}
 	}
 	break;
 
@@ -1767,14 +1408,9 @@ static int process(compiler_t *ctx, struct ast_node *n)
         struct ast_node *expr = n->return_stmt_data.argument;
         process(ctx, expr);
         
-		//mov esp,ebp
-        //pop ebp
-        db(ctx, 0x89);
-        db(ctx, 0xec);
-        db(ctx, 0x5d);
-        
-        //ret
-        db(ctx, 0xc3);   
+		cg->mov(ctx, ESP, EBP);
+		cg->pop(ctx, EBP);
+		cg->ret(ctx);
     } break;
     
     //TODO: implement this properly
@@ -1815,35 +1451,16 @@ static int process(compiler_t *ctx, struct ast_node *n)
             assert(n->func_decl_data.body->type == AST_BLOCK_STMT);
             //int localsize = accumulate_local_variable_declaration_size(ctx, n->func_decl_data.body);
             int localsize = function_variable_declaration_stack_size(ctx, n);
-            //push ebp
-            //mov ebp, esp
-            db(ctx, 0x55);
-            db(ctx, 0x89);
-            db(ctx, 0xe5);
+			cg->push(ctx, EBP);
+			cg->mov(ctx, EBP, ESP);
 
-            //allocate some space
-
-            //sub esp, 4
-            //works for < 0xff
-            //db(ctx, 0x83);
-            //db(ctx, 0xec);
-            //db(ctx, 0x04);
-
-            //sub esp, imm32
-            db(ctx, 0x81);
-            db(ctx, 0xec);
-            dd(ctx, localsize);
+			cg->sub_regn_imm32(ctx, ESP, localsize);
 
             process(ctx, n->func_decl_data.body);
-
-            //mov esp,ebp
-            //pop ebp
-            db(ctx, 0x89);
-            db(ctx, 0xec);
-            db(ctx, 0x5d);
-
-            //ret
-            db(ctx, 0xc3);
+			
+			cg->mov(ctx, ESP, EBP);
+			cg->pop(ctx, EBP);
+			cg->ret(ctx);
         }
         else
         {
@@ -1883,12 +1500,12 @@ static int process(compiler_t *ctx, struct ast_node *n)
 	{
 		struct ast_node* expr = n->seq_expr_data.expr[0];
 		process( ctx, expr );
-		push( ctx, EAX );
+		cg->push( ctx, EAX );
 		for ( int i = 1; i < n->seq_expr_data.numexpr; ++i )
 		{
 			process( ctx, n->seq_expr_data.expr[i] );
 		}
-		pop( ctx, EAX );
+		cg->pop( ctx, EAX );
 	}
 	break;
 
@@ -1957,65 +1574,40 @@ static int process(compiler_t *ctx, struct ast_node *n)
 	{
         struct scope *scope = active_scope(ctx);
         assert(scope);
-        
-		int pos = instruction_position( ctx ); // jmp_pos + 1 = new_pos
-		db( ctx, 0xe9 );
-		dd( ctx, 0x0 ); // placeholder
-		scope->breaks[scope->numbreaks++] = pos;
+		assert(scope->break_cond);
+		cg->jmp_end(ctx, scope->break_cond);
 	} break;
 
 	case AST_FOR_STMT:
     {
-        struct scope scope;
+        struct scope scope = {0};
         enter_scope(ctx, &scope);
         if(n->for_stmt_data.init)
             process(ctx, n->for_stmt_data.init);
         
-        int pos = instruction_position(ctx);
-        if(n->for_stmt_data.test)
-		{
-			rvalue( ctx, EAX, n->for_stmt_data.test );
-			// test eax,eax
-			db( ctx, 0x85 );
-			db( ctx, 0xc0 );
-		} else
-		{
-			db( ctx, 0x90 );
-			db( ctx, 0x90 );
-		}
-		// jz rel32
-		int jz_pos = instruction_position( ctx ); // jmp_pos + 2 = new_pos
-
+		reljmp_t rel_loop;
+		cg->jmp_begin(ctx, &rel_loop, RJ_JMP | RJ_REVERSE);
+		
+		reljmp_t rel;
+		scope.break_cond = &rel;
 		if(n->for_stmt_data.test)
 		{
-			db( ctx, 0x0f );
-			db( ctx, 0x84 );
-			dd( ctx, 0x0 ); // placeholder
-		} else
-		{
-			db( ctx, 0x90 );
-			db( ctx, 0x90 );
-            
-			db( ctx, 0x90 );
-			db( ctx, 0x90 );
-			db( ctx, 0x90 );
-			db( ctx, 0x90 );
+			rvalue( ctx, EAX, n->for_stmt_data.test );
+			cg->test(ctx, EAX, EAX);
+			cg->jmp_begin(ctx, &rel, RJ_JZ);
 		}
 
 		if(n->for_stmt_data.body)
             process(ctx, n->for_stmt_data.body);
         if(n->for_stmt_data.update)
             process(ctx, n->for_stmt_data.update);
-        int tmp = instruction_position(ctx);
-        
-        //jmp relative
-        db(ctx, 0xe9);
-        dd(ctx, pos - tmp - 5);
-        
+		
+		cg->jmp_end(ctx, &rel_loop);
+		
         if(n->for_stmt_data.test)
-			set32( ctx, jz_pos + 2, instruction_position( ctx ) - jz_pos - 6 );
-        for(int i = 0; i < scope.numbreaks; ++i)
-			set32( ctx, scope.breaks[i] + 1, instruction_position( ctx ) - scope.breaks[i] - 5 );
+		{
+			cg->jmp_end(ctx, &rel);
+		}
 		exit_scope(ctx);
 	} break;
 
@@ -2061,8 +1653,24 @@ static int process(compiler_t *ctx, struct ast_node *n)
     }
 }
 
+static void compile_context_print(compiler_t *ctx, const char *format, ...)
+{
+	//TODO: if verbose
+	#if 0
+	va_list va;
+	va_start(va, format);
+	char buf[16384];
+	vsprintf(buf, format, va);
+	printf("%s\n", buf);
+	va_end(va);
+	#endif
+}
+
 int x86(struct ast_node *head, compiler_t *ctx)
 {
+	ctx->print = compile_context_print;
+	ctx->rvalue = rvalue;
+	ctx->lvalue = lvalue;
     ctx->entry = 0xffffffff;
     ctx->instr = NULL;
     ctx->function = NULL;
@@ -2074,57 +1682,35 @@ int x86(struct ast_node *head, compiler_t *ctx)
 
     memset(ctx->registers, 0, sizeof(ctx->registers));
     ctx->scope_index = 0;
+	
+	//cg->int3(ctx);
+	//cg->int3(ctx);
 
     switch (ctx->build_target)
     {
     case BT_MEMORY:
         //so we can just call <buf_loc>
-        //push ebp
-        //mov ebp, esp
-        db(ctx, 0x55);
-        db(ctx, 0x89);
-        db(ctx, 0xe5);
+		cg->push(ctx, EBP);
+		cg->mov(ctx, EBP, ESP);
         break;
     }
 
-    //mov eax,imm32
-    db(ctx, 0xb8);
-    int from = instruction_position(ctx);
-    dd(ctx, 0x0);
-    
-    //call eax
-    db(ctx, 0xff);
-    db(ctx, 0xd0);
+	int from;
+	cg->mov_r_imm32(ctx, EAX, 0x0, &from);
+	cg->call_r32(ctx, EAX);
 
     switch (ctx->build_target)
     {
     case BT_LINUX_X86:
+	case BT_LINUX_X64:
     case BT_OPCODES:
-        //insert linux syscall exit
-        //mov ebx, eax
-        db(ctx, 0x89);
-        db(ctx, 0xc3);
-        //xor ebx,ebx
-        //db(ctx, 0x31);
-        //db(ctx, 0xdb);
-
-        db(ctx, 0x31); //xor eax,eax
-        db(ctx, 0xc0);
-        db(ctx, 0x40); //inc eax
-        db(ctx, 0xcd); //int 0x80
-        db(ctx, 0x80);
+		cg->exit_instr(ctx, EAX);
         break;
 
     case BT_MEMORY:
-
-        //mov esp,ebp
-        //pop ebp
-        db(ctx, 0x89);
-        db(ctx, 0xec);
-        db(ctx, 0x5d);
-
-        //ret
-        db(ctx, 0xc3);
+		cg->mov(ctx, ESP, EBP);
+		cg->pop(ctx, EBP);
+		cg->ret(ctx);
         break;
 
     default:
