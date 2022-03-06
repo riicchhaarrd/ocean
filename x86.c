@@ -261,7 +261,7 @@ static FUNCTION_CALL_TYPE identify_function_call_type(compiler_t* ctx, const cha
 
     if (!strcmp(function_name, "syscall")
 		&&
-		(ctx->build_target == BT_OPCODES || ctx->build_target == BT_LINUX)
+		(ctx->build_target == BT_OPCODES || ctx->build_target == BT_LINUX_X86 || ctx->build_target == BT_LINUX_X64)
 		)
         return FUNCTION_CALL_SYSCALL;
 
@@ -2098,7 +2098,7 @@ int x86(struct ast_node *head, compiler_t *ctx)
 
     switch (ctx->build_target)
     {
-    case BT_LINUX:
+    case BT_LINUX_X86:
     case BT_OPCODES:
         //insert linux syscall exit
         //mov ebx, eax

@@ -76,11 +76,15 @@ struct relocation
 enum BUILD_TARGET
 {
     BT_UNKNOWN,
-    BT_LINUX,
-    BT_WINDOWS,
+    BT_LINUX_X86,
+    BT_LINUX_X64,
+    BT_WIN32,
+    BT_WIN64,
     BT_MEMORY,
     BT_OPCODES
 };
+
+static const char* build_target_strings[] = { "Unknown", "Linux ELF x86", "Linux ELF x64", "Win32", "Win64", "Memory", "Opcodes", NULL};
 
 struct dynlib_sym
 {

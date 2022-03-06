@@ -84,7 +84,7 @@ int main( int argc, char** argv )
     const char *files[32];
     int numfiles = 0;
 	//use build target memory as default
-	int build_target = BT_OPCODES;
+	int build_target = BT_LINUX_X64;
 	struct linked_list* symbols = linked_list_create(struct dynlib_sym);
 	size_t nsymbols = 0;
 	
@@ -123,9 +123,9 @@ int main( int argc, char** argv )
 				if(opt_flags & OPT_VERBOSE)
 				printf( "using build target: %s\n", build_target_str);
 				if (!strcmp(build_target_str, "windows"))
-					build_target = BT_WINDOWS;
+					build_target = BT_WIN32;
 				else if (!strcmp(build_target_str, "linux"))
-					build_target = BT_LINUX;
+					build_target = BT_LINUX_X64;
 				else if (!strcmp(build_target_str, "memory"))
 					build_target = BT_MEMORY;
 				else if(!strcmp(build_target_str, "opcodes"))
@@ -162,6 +162,8 @@ int main( int argc, char** argv )
 	const char* dst = NULL;
 	if(build_target != BT_MEMORY)
 		dst = files[numfiles - 1];
+	if (src == dst)
+		dst = "a.out";
 	if (opt_flags & OPT_VERBOSE)
     printf("src: %s, dst: %s\n", src, dst);
     
@@ -209,16 +211,20 @@ int main( int argc, char** argv )
             if ( (opt_flags & OPT_INSTR) != OPT_INSTR )
 			{
 				int build_elf_image( compiler_t * ctx, const char* binary_path );
+				int build_elf64_image( compiler_t * ctx, const char* binary_path );
 				int build_exe_image( compiler_t * ctx, const char* binary_path );
 				int build_memory_image( compiler_t * ctx, const char* binary_path );
                 int ret;
 				switch (build_target)
 				{
-					case BT_WINDOWS:
+					case BT_WIN32:
 						ret = build_exe_image(&ctx, dst);
 						break;
-					case BT_LINUX:
+					case BT_LINUX_X86:
 						ret = build_elf_image(&ctx, dst);
+						break;
+					case BT_LINUX_X64:
+						ret = build_elf64_image(&ctx, dst);
 						break;
 					case BT_MEMORY:
 						ret = build_memory_image(&ctx, dst);

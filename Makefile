@@ -12,7 +12,7 @@ pre: parse.c lex.c pre.c
 
 compiler: main.c lex.c ast.c x86.c pe.c elf.c pre.c parse.c memory.c
 	@echo "Building compiler"
-	@$(CC) -m64 $(CFLAGS) main.c lex.c ast.c x86.c pe.c elf.c pre.c parse.c memory.c -o bin/ocean64
+	@$(CC) -m64 $(CFLAGS) main.c lex.c ast.c x86.c pe.c elf.c elf64.c pre.c parse.c memory.c -o bin/ocean64
 
 ast: main-ast.c lex.c ast.c pre.c parse.c
 	@echo "Building AST"
