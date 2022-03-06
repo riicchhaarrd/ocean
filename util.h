@@ -4,14 +4,6 @@
 #include <stdint.h>
 #include "types.h"
 
-#ifdef __GNUC__
-#define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
-#endif
-
-#ifdef _MSC_VER
-#define PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
-#endif
-
 static int dd(heap_string *s, uint32_t i)
 {
 	int sz = heap_string_size( s );
