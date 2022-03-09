@@ -33,7 +33,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
 	db(&instr, 0x05);
 	#endif
 	
-    heap_string data_buf = NULL;//ctx->data;
+    heap_string data_buf = ctx->data;
 	heap_string image = NULL;
     db(&image, 0x7f);
     db(&image, 'E');
@@ -46,7 +46,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
 
     for(size_t i = 0; i < 8; ++i)
 	    db(&image, 0);
-    dw(&image, 2); //e_type
+    dw(&image, 3); //e_type
     dw(&image, 0x3e); //e_machine //AMD x86-64 //https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     dd(&image, 1); //e_version
 
@@ -69,7 +69,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
     dw(&image, 0); //e_shnum
     dw(&image, 0); //e_shstrndx
     
-    #define ORG (0x08048000)
+    #define ORG (0x40000)
 	#define ALIGNMENT (0x1000)
 
     int phdr_offset = heap_string_size(&image);
@@ -88,7 +88,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
     //get pointers now because image pointer is different than before after the reallocation
     struct phdr64 *null_hdr = (struct phdr64*)&image[null_hdr_offset];
 
-    null_hdr->p_type = PT_LOAD;
+    null_hdr->p_type = PT_NULL;
     null_hdr->p_flags = PF_R;
     null_hdr->p_offset = 0;
     null_hdr->p_vaddr = ORG;
@@ -152,7 +152,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
     	u32 dl = heap_string_size(&data_buf);
         
         struct phdr64 *data_hdr = (struct phdr64*)&image[data_hdr_offset];
-        data_hdr->p_type = PT_LOAD;
+        data_hdr->p_type = PT_DYNAMIC;
         data_hdr->p_flags = PF_R | PF_W;
         data_hdr->p_offset = data_offset;
         data_hdr->p_vaddr = vaddr;
