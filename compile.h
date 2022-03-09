@@ -6,6 +6,23 @@
 #include "data_type.h"
 #include "rhd/hash_string.h"
 
+//TODO: implement later
+typedef enum
+{
+	VREG8,
+	//VREG8 + 1...
+	VREG16 = 4,
+	//VREG16 + 1...
+	VREG32 = 8,
+	//VREG32 + 1...
+	VREG64 = 12,
+	
+	VREGSP = 16,
+	VREGBP,
+	VREGIP,
+	VREGMAX
+} vreg_t;
+
 typedef enum
 {
     EAX, //0
@@ -140,6 +157,11 @@ typedef struct compiler_s
     struct function *function;
 
     intptr_t registers[8];
+
+	//TODO: keep track of how many times register is being used to prevent clobbering and unneccessary push/pops
+	//TODO: FIXME implement better way to do this with register allocation e.g buckets/graph coloring
+	int register_usage[REGISTER_X86_MAX];
+	
     struct scope *scope[16]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
 
