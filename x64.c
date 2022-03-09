@@ -157,14 +157,32 @@ static void int3(compiler_t *ctx)
 
 static void push(compiler_t *ctx, reg_t reg)
 {
-    db(ctx, 0x50 + reg);
-	ctx->print(ctx, "push %s", register_x86_names[reg]);
+	if (reg >= R8)
+	{
+		db(ctx, 0x41);
+		db(ctx, 0x50 + (reg - R8));
+	}
+	else
+	{
+		db(ctx, 0x50 + reg);
+	}
 }
 
 static reg_t inc(compiler_t *ctx, reg_t reg)
 {
-    db(ctx, 0x40 + reg);
-	ctx->print(ctx, "inc %s", register_x86_names[reg]);
+	//TODO: FIXME proper EAX/RAX and other registers seperation?
+	//for now just stick to use rax > eax
+	if(reg >= R8)
+	{
+		db(ctx, 0x49);
+		db(ctx, 0xff);
+		db(ctx, 0xc0 + (reg - R8));
+	} else
+	{
+		db(ctx, 0x48);
+		db(ctx, 0xff);
+		db(ctx, 0xc0 + reg);
+	}
 	return reg;
 }
 
@@ -173,12 +191,11 @@ static void pop(compiler_t *ctx, reg_t reg)
 	if(reg >= R8)
 	{
 		db(ctx, 0x41);
-		db(ctx, 0x50 + (reg - R8));
+		db(ctx, 0x58 + (reg - R8));
 	} else
 	{
 		db(ctx, 0x58 + reg);
 	}
-	ctx->print(ctx, "pop %s", register_x86_names[reg]);
 }
 
 //mov rax,imm32
@@ -190,7 +207,6 @@ static void mov_r_imm32(compiler_t *ctx, reg_t reg, i32 imm, int *data_loc)
 	if(data_loc)
 		*data_loc = instruction_position( ctx );
     dd(ctx, imm);
-	ctx->print(ctx, "mov %s, 0x%x", register_x86_names[reg], imm);
 }
 
 static reg_t add(compiler_t *ctx, reg_t a, reg_t b)
@@ -198,18 +214,16 @@ static reg_t add(compiler_t *ctx, reg_t a, reg_t b)
     db(ctx, 0x48);
     db(ctx, 0x01);
     db(ctx, 0xc0 + b * 8 + a);
-	ctx->print(ctx, "add %s, %s", register_x86_names[a], register_x86_names[b]);
 	return a;
 }
 
 static reg_t mov(compiler_t *ctx, reg_t a, reg_t b)
 {
 	if(a == b)
-		return; //e.g mov eax,eax do nothing
+		return a; //e.g mov eax,eax do nothing
     db(ctx, 0x48);
     db(ctx, 0x89);
     db(ctx, 0xc0 + b * 8 + a);
-	ctx->print(ctx, "mov %s, %s", register_x86_names[a], register_x86_names[b]);
 	return a;
 }
 
@@ -218,7 +232,6 @@ static void test(compiler_t *ctx, reg_t a, reg_t b)
     db(ctx, 0x48);
     db(ctx, 0x85);
     db(ctx, 0xc0 + b * 8 + a);
-	ctx->print(ctx, "test %s, %s", register_x86_names[a], register_x86_names[b]);
 }
 
 static reg_t imul(compiler_t *ctx, reg_t reg)
@@ -226,7 +239,6 @@ static reg_t imul(compiler_t *ctx, reg_t reg)
     db(ctx, 0x48);
     db(ctx, 0xf7);
     db(ctx, 0xe8 + reg);
-	ctx->print(ctx, "imul %s", register_x86_names[reg]);
 	return EAX;
 }
 
@@ -235,7 +247,6 @@ static reg_t idiv(compiler_t *ctx, reg_t reg)
     db(ctx, 0x48);
     db(ctx, 0xf7);
     db(ctx, 0xf8 + reg);
-	ctx->print(ctx, "idiv %s", register_x86_names[reg]);
 	return EAX;
 }
 
@@ -243,13 +254,12 @@ static void int_imm8(compiler_t *ctx, u8 value)
 {
 	db(ctx, 0xcd);
 	db(ctx, value);
-	ctx->print(ctx, "int 0x%x", value & 0xff);
 }
 
 static void exit_instr(compiler_t *ctx, reg_t reg)
 {
-	mov_r_imm32(ctx, EAX, 60, NULL);
 	mov(ctx, EDI, reg);
+	mov_r_imm32(ctx, EAX, 60, NULL);
 	//syscall
 	db(ctx, 0x0f);
 	db(ctx, 0x05);
@@ -260,11 +270,8 @@ static reg_t xor(compiler_t *ctx, reg_t a, reg_t b)
     db(ctx, 0x48);
 	db( ctx, 0x31 );
 	db( ctx, 0xc0 + b * 8 + a );
-	ctx->print(ctx, "xor %s, %s", register_x86_names[a], register_x86_names[b]);
 	return a;
 }
-
-static const reg_t syscall_argument_order[] = {EDI,ESI,EDX,R10,R8,R9};
 	
 static void invoke_syscall(compiler_t *ctx, struct ast_node **args, int numargs)
 {
@@ -279,12 +286,12 @@ static void invoke_syscall(compiler_t *ctx, struct ast_node **args, int numargs)
 		ctx->rvalue(ctx, EAX, args[numargs - i - 1]);
 		push(ctx, EAX);
 	}
+	pop(ctx, EAX);
 	pop(ctx, EDI);
 	pop(ctx, ESI);
 	pop(ctx, EDX);
 	pop(ctx, R10);
 	pop(ctx, R8);
-	pop(ctx, R9);
 	
 	//syscall
 	db(ctx, 0x0f);
@@ -296,7 +303,6 @@ static void cmp(compiler_t *ctx, reg_t a, reg_t b)
     db(ctx, 0x48);
     db(ctx, 0x39);
     db(ctx, 0xc0 + b * 8 + a);
-	ctx->print(ctx, "cmp %s, %s", register_x86_names[a], register_x86_names[b]);
 }
 
 static int if_beg(compiler_t *ctx, reg_t a, int operator, reg_t b, int *offset)
@@ -487,7 +493,7 @@ static void load_reg(compiler_t *ctx, reg_t a, reg_t b)
 {
 	db( ctx, 0x48 );
 	db( ctx, 0x8b );
-	db( ctx, b * 8 + a );
+	db( ctx, a * 8 + b );
 }
 
 static void store_reg(compiler_t *ctx, reg_t a, reg_t b)
