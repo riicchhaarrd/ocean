@@ -4,7 +4,7 @@ CFLAGS = -g -w
 OUT_DIR = bin
 .PHONY = all
 
-all: directories ast compiler pre
+all: directories compiler
 
 pre: parse.c lex.c pre.c
 	@echo "Building preprocessor"
