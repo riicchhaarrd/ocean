@@ -46,7 +46,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
 
     for(size_t i = 0; i < 8; ++i)
 	    db(&image, 0);
-    dw(&image, 3); //e_type
+    dw(&image, 2); //e_type
     dw(&image, 0x3e); //e_machine //AMD x86-64 //https://en.wikipedia.org/wiki/Executable_and_Linkable_Format
     dd(&image, 1); //e_version
 
@@ -152,7 +152,7 @@ int build_elf64_image(compiler_t *ctx, const char *binary_path)
     	u32 dl = heap_string_size(&data_buf);
         
         struct phdr64 *data_hdr = (struct phdr64*)&image[data_hdr_offset];
-        data_hdr->p_type = PT_DYNAMIC;
+        data_hdr->p_type = PT_LOAD;
         data_hdr->p_flags = PF_R | PF_W;
         data_hdr->p_offset = data_offset;
         data_hdr->p_vaddr = vaddr;
