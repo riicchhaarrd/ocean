@@ -1,2 +1,0 @@
-#!/bin/bash
-./build && ./ocean $1 -d bin/example.elf && gdb bin/example.elf -ex layout\ asm -ex tui\ reg\ all
