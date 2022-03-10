@@ -815,6 +815,49 @@ static void print_ast(struct ast_node *n, int depth)
     reset_print_color();
 }
 
+static struct ast_node *handle_variable_declaration( struct ast_context* ctx, struct ast_node* type_decl, struct ast_node* id, int is_param )
+{
+	struct ast_node* decl_node = push_node(ctx, AST_VARIABLE_DECL);
+	if (!is_param && ctx->function)
+	{
+		ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
+	}
+	decl_node->variable_decl_data.id = id;
+	decl_node->variable_decl_data.data_type = type_decl;
+	decl_node->variable_decl_data.initializer_value = NULL;
+
+	if ( !ast_accept( ctx, '[' ) )
+	{
+		struct ast_node* array_type_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
+		decl_node->variable_decl_data.data_type =
+			array_type_node; // set our first array type on the declaration node it's data type
+		while ( 1 )
+		{
+			ast_expect(ctx, TK_INTEGER, "expected constant int array size");
+			int dc = ast_token(ctx)->integer;
+			ast_assert( ctx, dc > 0, "array size can't be zero" );
+			ast_expect(ctx, ']', "expected ] after array type declaration");
+			array_type_node->data_type_data.array_size = dc;
+			array_type_node->data_type_data.data_type = type_decl;
+			if ( ast_accept( ctx, '[' ) )
+				break;
+			struct ast_node* new_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
+			array_type_node->data_type_data.data_type = new_node;
+			array_type_node = new_node;
+		}
+	}
+
+	//initializer value
+	if(!ast_accept(ctx, '='))
+	{
+		struct ast_node *initializer_value;
+		expression(ctx, &initializer_value);
+		ast_assert(ctx, initializer_value, "expected initializer value after =");
+		decl_node->variable_decl_data.initializer_value = initializer_value;
+	}
+	return decl_node;
+}
+
 static void variable_declaration( struct ast_context* ctx, struct ast_node** out_decl_node, int is_param )
 {
 	struct ast_node* type_decl = NULL;
@@ -824,47 +867,7 @@ static void variable_declaration( struct ast_context* ctx, struct ast_node** out
     {
         ast_expect(ctx, TK_IDENT, "expected identifier for type declaration");
 		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
-
-		struct ast_node* decl_node = push_node(ctx, AST_VARIABLE_DECL);
-		if (!is_param && ctx->function)
-		{
-			ctx->function->func_decl_data.declarations[ctx->function->func_decl_data.numdeclarations++] = decl_node;
-		}
-		decl_node->variable_decl_data.id = id;
-		decl_node->variable_decl_data.data_type = type_decl;
-        decl_node->variable_decl_data.initializer_value = NULL;
-
-		if ( !ast_accept( ctx, '[' ) )
-		{
-			struct ast_node* array_type_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
-			decl_node->variable_decl_data.data_type =
-				array_type_node; // set our first array type on the declaration node it's data type
-			while ( 1 )
-			{
-                ast_expect(ctx, TK_INTEGER, "expected constant int array size");
-				int dc = ast_token(ctx)->integer;
-				ast_assert( ctx, dc > 0, "array size can't be zero" );
-                ast_expect(ctx, ']', "expected ] after array type declaration");
-				array_type_node->data_type_data.array_size = dc;
-				array_type_node->data_type_data.data_type = type_decl;
-				if ( ast_accept( ctx, '[' ) )
-					break;
-				struct ast_node* new_node = push_node( ctx, AST_ARRAY_DATA_TYPE );
-				array_type_node->data_type_data.data_type = new_node;
-				array_type_node = new_node;
-			}
-		}
-
-        //initializer value
-        if(!ast_accept(ctx, '='))
-		{
-            struct ast_node *initializer_value;
-            expression(ctx, &initializer_value);
-            ast_assert(ctx, initializer_value, "expected initializer value after =");
-            decl_node->variable_decl_data.initializer_value = initializer_value;
-		}
-
-		*out_decl_node = decl_node;
+		*out_decl_node = handle_variable_declaration(ctx, type_decl, id, is_param);
         return;
 	}
     *out_decl_node = NULL;
@@ -1166,6 +1169,77 @@ static void handle_struct_or_union_declaration(struct ast_context *ctx)
     add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
 }
 
+static void handle_function_definition(struct ast_context *ctx, struct ast_node *program_node, struct ast_node *type_decl, struct ast_node *id)
+{
+	if ( !type_decl )
+		ast_error( ctx, "expected function return type got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
+	struct ast_node* decl = push_node( ctx, AST_FUNCTION_DECL );
+	decl->func_decl_data.return_data_type = type_decl;
+	decl->func_decl_data.numparms = 0;
+	decl->func_decl_data.variadic = 0;
+	decl->func_decl_data.numdeclarations = 0;
+	decl->func_decl_data.id = id;
+	ctx->function = decl;
+	//ast_expect( ctx, '(', "expected ( after function" );
+
+	struct ast_node* parm_decl = NULL;
+	while ( 1 )
+	{
+		if ( !ast_accept( ctx, TK_DOT_THREE_TIMES ) )
+		{
+			decl->func_decl_data.variadic = 1;
+			break;
+		}
+		variable_declaration( ctx, &parm_decl, 1 );
+
+		if ( parm_decl == NULL )
+			break;
+
+		assert( parm_decl->variable_decl_data.id->type == AST_IDENTIFIER );
+		// debug_printf("func parm %s\n", parm_decl->variable_decl_data.id->identifier_data.name);
+
+		decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = parm_decl;
+
+		if ( ast_accept( ctx, ',' ) )
+			break;
+	}
+
+	ast_expect( ctx, ')', "expected ) after function" );
+
+	struct ast_node* block_node = NULL;
+	//check if it's just a forward decl
+	if (ast_accept(ctx, ';'))
+	{
+		statement_node(ctx, &block_node);
+		ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
+	}
+	linked_list_prepend( program_node->program_data.body, decl );
+	ctx->function = NULL;
+	decl->func_decl_data.body = block_node;
+}
+
+static int handle_function_definition_or_variable_declaration(struct ast_context *ctx, struct ast_node *program_node)
+{
+	struct ast_node* type_decl = NULL;
+	int td = type_declaration( ctx , &type_decl );
+	ast_assert( ctx, !td, "error in type declaration" );
+	if(!type_decl)
+		return 1;
+	// TODO: implement global variables assignment, function prototypes and a preprocessor
+
+	ast_expect( ctx, TK_IDENT, "expected ident" );
+	struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
+	
+	if(!ast_accept(ctx, '('))
+	{
+		handle_function_definition(ctx, program_node, type_decl, id);
+		return 0;
+	}
+	struct ast_node *variable_decl = handle_variable_declaration(ctx, type_decl, id, 0);
+	linked_list_prepend( program_node->program_data.body, variable_decl );
+	return 0;
+}
+
 static struct ast_node *program(struct ast_context *ctx)
 {
     struct ast_node *program_node = push_node(ctx, AST_PROGRAM);
@@ -1187,61 +1261,15 @@ static struct ast_node *program(struct ast_context *ctx)
         {
             handle_enum_declaration(ctx);
             continue;
-        }
-
-		struct ast_node* type_decl = NULL;
-        int td = type_declaration( ctx , &type_decl );
-        ast_assert(ctx, !td, "error in type declaration");
-		// TODO: implement global variables assignment, function prototypes and a preprocessor
-		if ( !type_decl )
-			ast_error( ctx, "expected function return type got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
-        
-		struct ast_node* decl = push_node( ctx, AST_FUNCTION_DECL );
-		decl->func_decl_data.return_data_type = type_decl;
-		decl->func_decl_data.numparms = 0;
-		decl->func_decl_data.variadic = 0;
-		decl->func_decl_data.numdeclarations = 0;
-		ctx->function = decl;
-
-		ast_expect( ctx, TK_IDENT, "expected ident after function" );
-		struct ast_node* id = identifier( ctx, ast_token(ctx)->string );
-		decl->func_decl_data.id = id;
-		ast_expect( ctx, '(', "expected ( after function" );
-
-		struct ast_node* parm_decl = NULL;
-		while ( 1 )
+        } else
 		{
-			if ( !ast_accept( ctx, TK_DOT_THREE_TIMES ) )
+			if(handle_function_definition_or_variable_declaration(ctx, program_node))
 			{
-				decl->func_decl_data.variadic = 1;
-				break;
+				struct ast_node* stmt;
+				statement( ctx, &stmt );
+				linked_list_prepend( program_node->program_data.body, stmt );
 			}
-			variable_declaration( ctx, &parm_decl, 1 );
-
-			if ( parm_decl == NULL )
-				break;
-
-			assert( parm_decl->variable_decl_data.id->type == AST_IDENTIFIER );
-			// debug_printf("func parm %s\n", parm_decl->variable_decl_data.id->identifier_data.name);
-
-			decl->func_decl_data.parameters[decl->func_decl_data.numparms++] = parm_decl;
-
-			if ( ast_accept( ctx, ',' ) )
-				break;
 		}
-
-		ast_expect( ctx, ')', "expected ) after function" );
-
-		struct ast_node* block_node = NULL;
-		//check if it's just a forward decl
-		if (ast_accept(ctx, ';'))
-		{
-			statement_node(ctx, &block_node);
-			ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
-		}
-		linked_list_prepend( program_node->program_data.body, decl );
-        ctx->function = NULL;
-		decl->func_decl_data.body = block_node;
 	}
     return program_node;
 }
