@@ -23,6 +23,33 @@ typedef enum
 	VREGMAX
 } vreg_t;
 
+typedef struct
+{
+	int nbits;
+	int indexed;
+	union
+	{
+		int64_t dq;
+		int32_t dd[2];
+		int16_t dw[4];
+		int8_t db[8];
+	};
+} vregval_t;
+
+static void setvregval(vregval_t *rv, int i)
+{
+	rv->indexed = 0;
+	rv->nbits = 32;
+	rv->dd[0] = i;
+}
+
+static void setvregvalindex(vregval_t *rv, int index)
+{
+	rv->indexed = 1;
+	rv->nbits = 32;
+	rv->dd[0] = index;
+}
+
 typedef enum
 {
     EAX, //0
@@ -143,6 +170,27 @@ struct dynlib_sym
 
 typedef struct dynlib_sym* (*find_import_fn_t)(void *userptr, const char *key);
 
+typedef struct
+{
+	int index;
+	size_t length;
+	char *buffer;
+} indexed_data_t;
+
+#define MAX_INDEXED_DATA 256 //TODO: dynamically increase
+
+typedef struct
+{
+	//size in bits of each type
+	int longsize;
+	int intsize;
+	int shortsize;
+	int charsize;
+	int floatsize;
+	int doublesize;
+	int pointersize;
+} fundamental_type_size_t;
+
 typedef struct compiler_s
 {
     int build_target;
@@ -152,11 +200,15 @@ typedef struct compiler_s
     struct linked_list *relocations;
     struct linked_list *functions;
     
+	fundamental_type_size_t fts;
+	
 	heap_string instr;
 
     struct function *function;
 
     intptr_t registers[8];
+	indexed_data_t indexed_data[MAX_INDEXED_DATA];
+	int numindexeddata;
 
 	//TODO: keep track of how many times register is being used to prevent clobbering and unneccessary push/pops
 	//TODO: FIXME implement better way to do this with register allocation e.g buckets/graph coloring
@@ -172,4 +224,15 @@ typedef struct compiler_s
 	
 	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
 } compiler_t;
+
+static int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len)
+{
+	if(ctx->numindexeddata + 1 >= MAX_INDEXED_DATA)
+		perror("out of memory for indexed data");
+	indexed_data_t *id = &ctx->indexed_data[ctx->numindexeddata++];
+	id->index = ctx->numindexeddata - 1;
+	id->length = len;
+	id->buffer = buffer;
+	return id->index;
+}
 #endif
