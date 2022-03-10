@@ -1,12 +1,18 @@
+#define HEAP_STRING_IMPL
+#include "rhd/heap_string.h"
+
+#define LINKED_LIST_IMPL
+#include "rhd/linked_list.h"
+
+#define HASH_MAP_IMPL
+#include "rhd/hash_map.h"
+
+#include "rhd/hash_string.h"
+
 #include "ast.h"
 #include "codegen.h"
 #include "parse.h"
 #include "token.h"
-
-#include "rhd/heap_string.h"
-#include "rhd/linked_list.h"
-#include "rhd/hash_map.h"
-#include "rhd/hash_string.h"
 
 void resolve_calls(ast_node_t* head, ast_node_t *func)
 {
@@ -99,19 +105,6 @@ static ast_node_t *ast_node_expression_type(ast_node_t *head, ast_node_t* n)
     return -1;
 }
 
-static void process_ast_node(ast_node_t* n)
-{
-    switch (n->type)
-    {
-        case AST_BIN_EXPR:
-        {
-            struct ast_node* lhs = n->bin_expr_data.lhs;
-            struct ast_node* rhs = n->bin_expr_data.rhs;
-            //float > int
-        } break;
-    }
-}
-
 int main(int argc, char** argv)
 {
     while (1)
@@ -144,8 +137,13 @@ int main(int argc, char** argv)
         }
 #endif
 
-        process_ast_node(head);
+        //process_ast_node(head);
 
+
+		compiler_t compile_ctx = {0};
+		int codegen(compiler_t* ctx, ast_node_t *head);
+		codegen(&compile_ctx, head);
+		
         linked_list_destroy(&ast_list);
         free(tokens);
     }
