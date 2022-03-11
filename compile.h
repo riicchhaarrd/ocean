@@ -43,6 +43,21 @@ static void setvregval(vregval_t *rv, int i)
 	rv->dd[0] = i;
 }
 
+static int getvregval(vregval_t *rv)
+{
+	switch(rv->nbits)
+	{
+		case 32:
+		return rv->dd[0];
+		case 64:
+		return rv->dq;
+		case 8:
+		return rv->db[0];
+		case 16:
+		return rv->dw[0];
+	}
+}
+
 static void setvregvalindex(vregval_t *rv, int index)
 {
 	rv->indexed = 1;

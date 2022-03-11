@@ -2,7 +2,7 @@
 #include "codegen.h"
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
-
+//gcc -w -g test.c codegen.c ast.c lex.c parse.c && ./a.out
 static void visit_ast_node(traverse_context_t *ctx, ast_node_t *n)
 {
     if (ctx->single_result)
@@ -293,6 +293,7 @@ static void rvalue_literal(compiler_t *ctx, ast_node_t *n, value_t *v)
 	{
 		case LITERAL_INTEGER:
 			setvregval(&v->data.value, n->literal_data.integer);
+			printf("literal integer: %d\n", n->literal_data.integer);
 			break;
 		case LITERAL_STRING:
 		{
@@ -304,10 +305,54 @@ static void rvalue_literal(compiler_t *ctx, ast_node_t *n, value_t *v)
 		break;
 	}
 	v->nbits = v->data.value.nbits;
+	printf("literal %d bits\n", v->nbits);
+}
+
+void rvalue(compiler_t *ctx, ast_node_t *n, value_t *v);
+
+static void rvalue_bin_expr(compiler_t *ctx, ast_node_t *n, value_t *v)
+{
+	value_t lhs_value, rhs_value;
+	rvalue(ctx, n->bin_expr_data.lhs, &lhs_value);
+	rvalue(ctx, n->bin_expr_data.rhs, &rhs_value);
+	
+	if(lhs_value.data_type == VD_CONSTANT && rhs_value.data_type == VD_CONSTANT)
+	{
+		printf("bin expr: %d %c %d\n", getvregval(&lhs_value.data.value), n->bin_expr_data.operator, getvregval(&rhs_value.data.value));
+		v->data_type = VD_CONSTANT;
+		//pick the side with more bits
+		v->nbits = lhs_value.data.value.nbits > rhs_value.data.value.nbits ? lhs_value.data.value.nbits : rhs_value.data.value.nbits;
+		switch(n->bin_expr_data.operator)
+		{
+			case '+': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  + getvregval(&rhs_value.data.value)); break;
+			case '-': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  - getvregval(&rhs_value.data.value)); break;
+			case '/': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  / getvregval(&rhs_value.data.value)); break;
+			case '*': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  * getvregval(&rhs_value.data.value)); break;
+			case '%': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  % getvregval(&rhs_value.data.value)); break;
+			case '^': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  ^ getvregval(&rhs_value.data.value)); break;
+			case '|': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  | getvregval(&rhs_value.data.value)); break;
+			case '&': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
+				  & getvregval(&rhs_value.data.value)); break;
+			default:
+				perror("unsupported\n");
+			break;
+		}
+	} else
+	{
+		//TODO: FIXME
+	}
 }
 
 static value_key_proc_pair_t rvalue_key_proc_pairs[] = {
 	{AST_LITERAL, rvalue_literal},
+	{AST_BIN_EXPR, rvalue_bin_expr},
 	//{AST_IDENTIFIER, rvalue_identifier},
 	{AST_NONE, NULL}
 };
@@ -328,7 +373,7 @@ static value_key_proc_pair_t lvalue_key_proc_pairs[] = {
 	{AST_NONE, NULL}
 };
 
-static void rvalue(compiler_t *ctx, ast_node_t *n, value_t *v)
+void rvalue(compiler_t *ctx, ast_node_t *n, value_t *v)
 {
 	v->category = VC_RVALUE;
 	v->data_type = VD_INVALID;
@@ -387,6 +432,34 @@ int process(compiler_t* ctx, ast_node_t* n)
 			lvalue(ctx, n->assignment_expr_data.lhs, &lhs_value);
 			
 			//TODO: FIXME
+			printf("setting value to %d\n", getvregval(&rhs_value.data.value));
+		} break;
+		
+		case AST_BLOCK_STMT:
+		{
+			linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
+			{
+				process(ctx, *it);
+			});
+		} break;
+		
+		case AST_FUNCTION_DECL:
+		{
+			if (n->func_decl_data.body)
+			{
+				struct function func = {
+					.location = 0,
+					.name = n->func_decl_data.id->identifier_data.name,
+					.localvariablesize = 0,
+					.variables = hash_map_create(struct variable)
+				};
+				ctx->function = linked_list_prepend(ctx->functions, func);
+				//TODO: FIXME
+				process(ctx, n->func_decl_data.body);
+			} else
+			{
+				perror("todo implement");
+			}
 		} break;
 		
 		case AST_VARIABLE_DECL:
