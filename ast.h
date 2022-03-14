@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "data_type.h"
+#include "arena.h"
+#include "parse.h"
 
 #define ENUM_BEGIN(typ) enum typ {
 #define ENUM(nam) nam
@@ -313,6 +315,22 @@ static void ast_print_node_type(const char* key, struct ast_node* n)
 {
     printf("node type: %s -> %s\n", key, AST_NODE_TYPE_to_string(n->type));
 }
+struct ast_context
+{
+	arena_t *allocator;
+	struct ast_node *program_node;
+    struct ast_node *function;
+    struct ast_node *default_function;
+    struct hash_map *type_definitions;
+	int numtypes;
+	
+    int verbose;
+	
+    struct parse_context parse_context;
+    jmp_buf jmp;
+};
 
-int generate_ast(struct token* tokens, int num_tokens, struct linked_list** ll/*for freeing the whole tree*/, struct ast_node** root, bool);
+typedef struct ast_context ast_context_t;
+void ast_init_context(ast_context_t *ctx, arena_t *allocator);
+int ast_process_tokens(ast_context_t*, struct token *tokens, int num_tokens);
 #endif

@@ -13,6 +13,7 @@
 #include "codegen.h"
 #include "parse.h"
 #include "token.h"
+#include "arena.h"
 
 void resolve_calls(ast_node_t* head, ast_node_t *func)
 {
@@ -107,23 +108,36 @@ static ast_node_t *ast_node_expression_type(ast_node_t *head, ast_node_t* n)
 
 int main(int argc, char** argv)
 {
+	arena_t *arena;
+	arena_create(&arena, "compiler", 1000 * 1000 * 32); //32MB
+	
+	compiler_t compile_ctx;
+	compiler_init(&compile_ctx, arena, 64);
+	
+	ast_context_t ast_context;
+	ast_init_context(&ast_context, arena);
+	
     while (1)
     {
-        printf(">");
-        char code[1024];
-        fgets(code, sizeof(code), stdin);
-        printf("\n");
+        //printf(">");
+		const char *code = "int main(){ int test = 5; test += 10; return 0; }";
+        //fgets(code, sizeof(code), stdin);
+		if(code[0] == 'q')
+			break;
+        //printf("\n");
         struct token* tokens = NULL;
         int num_tokens = 0;
 
         //static const char* code = "int a = 3 + 3;";
         parse(code, &tokens, &num_tokens, LEX_FL_NONE);
-
-        struct linked_list* ast_list = NULL;
-        int verbose = 0;
-        ast_node_t* head = NULL;
-        int ast = generate_ast(tokens, num_tokens, &ast_list, &head, verbose);
+		
+		if(ast_process_tokens(&ast_context, tokens, num_tokens))
+			break;
+        free(tokens);
+		
         traverse_context_t ctx = { 0 };
+		void print_ast(struct ast_node *n, int depth);
+		//print_ast(program_node, 0);
 
 #if 0
         ast_node_t* main_func = ast_tree_node_by_identifier(&ctx, head, "main", AST_FUNCTION_DECL);
@@ -136,16 +150,12 @@ int main(int argc, char** argv)
             resolve_calls(head, main_func);
         }
 #endif
-
-        //process_ast_node(head);
-
-
-		compiler_t compile_ctx = {0};
-		int codegen(compiler_t* ctx, ast_node_t *head);
-		codegen(&compile_ctx, head);
-		
-        linked_list_destroy(&ast_list);
-        free(tokens);
+		int codegen(compiler_t* ctx, ast_node_t*);
+		if(codegen(&compile_ctx, ast_context.program_node))
+			break;
+		break;
     }
+	printf("%d KB/%d KB bytes used\n", arena->used/1000, arena->reserved/1000);
+	arena_destroy(&arena);
 	return 0;
 }

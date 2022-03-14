@@ -209,7 +209,7 @@ static int data_type_size(compiler_t *ctx, struct ast_node *n)
 	} break;
     case AST_IDENTIFIER:
 	{
-		struct variable* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
+		variable_t* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
 		assert( var );
         return data_type_size(ctx, var->data_type_node);
 	}
@@ -360,7 +360,7 @@ static value_key_proc_pair_t rvalue_key_proc_pairs[] = {
 static void lvalue_identifier(compiler_t *ctx, ast_node_t *n, value_t *v)
 {
 	const char* variable_name = n->identifier_data.name;
-	struct variable* var = hash_map_find( ctx->function->variables, variable_name );
+	variable_t* var = hash_map_find( ctx->function->variables, variable_name );
 	assert( var );
 	struct ast_node *variable_type = var->data_type_node;
 	//int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
@@ -406,8 +406,27 @@ static void print_value(value_t *v)
 	printf("value type:%s,category:%s,nbits:%d\n", value_data_strings[v->data_type], value_category_strings[v->category], v->nbits);
 }
 
+#define compiler_assert(ctx, expr, ...) \
+    compiler_assert_r(ctx, (intptr_t)expr, #expr, ## __VA_ARGS__)
+	
+static void compiler_assert_r(compiler_t *ctx, int expr, const char *expr_str, const char *fmt, ...)
+{
+    if(expr)
+        return;
+
+	char buffer[512] = { 0 };
+	va_list va;
+	va_start( va, fmt );
+	vsnprintf( buffer, sizeof( buffer ), fmt, va );
+	debug_printf( "compiler assert failed: '%s' %s\n", expr_str, buffer );
+	va_end( va );
+
+	longjmp(ctx->jmp, 1);
+}
+
 int process(compiler_t* ctx, ast_node_t* n)
 {
+	printf("n->type=%s\n",AST_NODE_TYPE_to_string(n->type));
 	switch (n->type)
     {
 		case AST_PROGRAM:			
@@ -437,6 +456,7 @@ int process(compiler_t* ctx, ast_node_t* n)
 		
 		case AST_BLOCK_STMT:
 		{
+			//TODO: stack of scopes
 			linked_list_reversed_foreach(n->block_stmt_data.body, struct ast_node**, it,
 			{
 				process(ctx, *it);
@@ -447,15 +467,37 @@ int process(compiler_t* ctx, ast_node_t* n)
 		{
 			if (n->func_decl_data.body)
 			{
-				struct function func = {
-					.location = 0,
-					.name = n->func_decl_data.id->identifier_data.name,
-					.localvariablesize = 0,
-					.variables = hash_map_create(struct variable)
-				};
-				ctx->function = linked_list_prepend(ctx->functions, func);
+				const char *function_name = n->func_decl_data.id->identifier_data.name;
+				function_t *oldfunc = ctx->function;
+				function_t *tmp = hash_map_find(ctx->functions, function_name);
+				compiler_assert(ctx, !tmp, "function already exists '%s'", function_name);
+				function_t *func = compiler_alloc_function(ctx, function_name);
+				ctx->function = func;
+				//TODO: FIXME can't add any new functions to the functions hash map or otherwise ctx->function gets invalidated
+				//maybe store function name instead
+				
 				//TODO: FIXME
-				process(ctx, n->func_decl_data.body);
+				
+				
+				//add up all the variables in the function's scope and calculate how much space in bytes we need to allocate				
+				traverse_context_t traverse_ctx = { 0 };
+
+				ast_node_t* variable_declarations[32];
+				size_t num_variable_declarations = ast_tree_nodes_by_type(&traverse_ctx, n->func_decl_data.body, AST_VARIABLE_DECL, &variable_declarations, COUNT_OF(variable_declarations));
+				printf("vars %d\n", num_variable_declarations);
+				int numbits = 0;
+				for (size_t i = 0; i < num_variable_declarations; ++i)
+				{
+					printf("var name = %s %s\n", AST_NODE_TYPE_to_string(variable_declarations[i]->type), variable_declarations[i]->variable_decl_data.id->identifier_data.name);
+					
+					int variable_size = data_type_size(ctx, variable_declarations[i]->variable_decl_data.data_type);
+					numbits += variable_size;
+				}
+				
+				printf("numbytes=%d\n",numbytes);
+				
+				//process(ctx, n->func_decl_data.body);
+				ctx->function = oldfunc;
 			} else
 			{
 				perror("todo implement");
@@ -470,6 +512,8 @@ int process(compiler_t* ctx, ast_node_t* n)
 			assert(id->type == AST_IDENTIFIER);
 			const char *variable_name = id->identifier_data.name;
 			
+			variable_t *tmp = hash_map_find(ctx->function->variables, variable_name);
+			compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
 			int variable_size = data_type_size(ctx, data_type_node);
 			assert(variable_size > 0);
 			if(ctx->function)
@@ -478,7 +522,7 @@ int process(compiler_t* ctx, ast_node_t* n)
 
 				int offset = ctx->function->localvariablesize;
 				
-				struct variable tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
+				variable_t tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
 				hash_map_insert( ctx->function->variables, variable_name, tv );
 			} else
 				printf("TODO FIXME global variables\n");
@@ -500,22 +544,24 @@ int process(compiler_t* ctx, ast_node_t* n)
 
 int codegen(compiler_t* ctx, ast_node_t *head)
 {
-	ctx->fts.longsize = 64;
-	ctx->fts.intsize = 32;
-	ctx->fts.shortsize = 16;
-	ctx->fts.charsize = 8;
-	ctx->fts.floatsize = 32;
-	ctx->fts.doublesize = 64;
-	ctx->fts.pointersize = 64;
-    ctx->functions = linked_list_create(struct function);
+    if(setjmp(ctx->jmp))
+    {
+		return 1;
+    }
+	process(ctx, head);
 	
-	struct function func = {
-		.location = 0,
-		.name = "_start",
-		.localvariablesize = 0,
-		.variables = hash_map_create(struct variable)
-	};
-	ctx->function = linked_list_prepend(ctx->functions, func);
-    process(ctx, head);
+	printf("functions:\n");
+	hash_map_foreach_entry(ctx->functions, entry,
+	{
+		function_t *fn = entry->data;
+		printf("%s\n", fn->name);
+		printf("--------------------------\n");
+		
+		hash_map_foreach_entry(fn->variables, ventry,
+		{
+			printf("\t%s\n", ventry->key);
+		});
+	});
+	
     return 0;
 }

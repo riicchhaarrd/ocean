@@ -5,21 +5,43 @@
 #include "rhd/hash_map.h"
 #include "std.h"
 
-struct ast_context
+static struct ast_node *push_node(ast_context_t *ctx, int type)
 {
-    struct parse_context parse_context;
-    
-    struct linked_list *node_list;
-    struct ast_node *root_node;
-    struct ast_node *function;
-    struct hash_map *type_definitions;
-    struct ast_node *last_node;
+	struct ast_node *n = arena_alloc(ctx->allocator, sizeof(struct ast_node));
+	n->parent = NULL;
+	n->type = type;
+	n->rvalue = 0;
+	return n;
+}
 
-    int verbose;
-    jmp_buf jmp;
+static struct ast_node *identifier(struct ast_context *ctx, const char *name)
+{
+    struct ast_node* n = push_node(ctx, AST_IDENTIFIER);
+    snprintf(n->identifier_data.name, sizeof(n->identifier_data.name), "%s", name);
+    return n;
+}
+
+void ast_init_context(ast_context_t *ctx, arena_t *allocator)
+{
+	ctx->allocator = allocator;
 	
-	int numtypes;
-};
+    struct ast_node *n = push_node(ctx, AST_PROGRAM);
+    n->program_data.body = linked_list_create_with_custom_allocator(void*, ctx->allocator, arena_alloc);
+	ctx->program_node = n;
+	
+	struct ast_node* fn = push_node( ctx, AST_FUNCTION_DECL );
+	fn->func_decl_data.return_data_type = NULL;
+	fn->func_decl_data.numparms = 0;
+	fn->func_decl_data.variadic = 0;
+	fn->func_decl_data.numdeclarations = 0;
+	fn->func_decl_data.id = NULL;
+	ctx->default_function = fn;
+	
+	ctx->verbose = 0;
+	ctx->function = ctx->default_function;
+	ctx->type_definitions = hash_map_create_with_custom_allocator(struct ast_node, ctx->allocator, arena_alloc);
+	ctx->numtypes = 0;
+}
 
 static void statement(struct ast_context *ctx, struct ast_node **node);
 
@@ -90,18 +112,6 @@ static void ast_expect_r(struct ast_context *ctx, int type, int lineno, const ch
 #define ast_expect(ctx, type, ...) \
     ast_expect_r(ctx, type, __LINE__, ## __VA_ARGS__)
 
-static struct ast_node *push_node(struct ast_context *ctx, int type)
-{
-	struct ast_node t = {
-            .parent = NULL,
-            .type = type,
-            .rvalue = 0
-    };
-    struct ast_node *node = linked_list_prepend(ctx->node_list, t);
-    ctx->last_node = node;
-    return node;
-}
-
 static struct ast_node *rvalue_node(struct ast_node *n)
 {
     n->rvalue = 1;
@@ -165,13 +175,6 @@ static struct ast_node *int_literal(struct ast_context *ctx, int value)
     struct ast_node* n = push_node(ctx, AST_LITERAL);
     n->literal_data.type = LITERAL_INTEGER;
     n->literal_data.integer = value;
-    return n;
-}
-
-static struct ast_node *identifier(struct ast_context *ctx, const char *name)
-{
-    struct ast_node* n = push_node(ctx, AST_IDENTIFIER);
-    snprintf(n->identifier_data.name, sizeof(n->identifier_data.name), "%s", name);
     return n;
 }
 
@@ -600,9 +603,9 @@ static void reset_print_color()
 	#endif
 }
 
-static void print_ast(struct ast_node *n, int depth)
+void print_ast(struct ast_node *n, int depth)
 {
-	//printf("(node type %s)\n", ast_node_type_strings[n->type]);
+	//printf("(node type %s)\n", AST_NODE_TYPE_to_string(n->type));
 
     int print_lines = 0;//depth > 1;
     set_print_color(depth);
@@ -905,7 +908,7 @@ static struct ast_node *init_statement(struct ast_context *ctx)
 static struct ast_node *block_statement(struct ast_context *ctx)
 {
 	struct ast_node* n = push_node( ctx, AST_BLOCK_STMT );
-	n->block_stmt_data.body = linked_list_create( void* );
+	n->block_stmt_data.body = linked_list_create_with_custom_allocator(void*, ctx->allocator, arena_alloc);
 
 	while ( 1 )
 	{
@@ -1165,11 +1168,11 @@ static void handle_struct_or_union_declaration(struct ast_context *ctx)
     ast_expect(ctx, '}', "no ending brace for %s type", type_string);
     ast_expect(ctx, ';', "no ending semicolon for %s type", type_string);
 
-    //linked_list_prepend(program_node->program_data.body, struct_node);
+    //linked_list_prepend(ctx->program_node->program_data.body, struct_node);
     add_type_definition(ctx, struct_node.struct_decl_data.name, &struct_node);
 }
 
-static void handle_function_definition(struct ast_context *ctx, struct ast_node *program_node, struct ast_node *type_decl, struct ast_node *id)
+static void handle_function_definition(struct ast_context *ctx, struct ast_node *type_decl, struct ast_node *id)
 {
 	if ( !type_decl )
 		ast_error( ctx, "expected function return type got '%s'", token_type_to_string( parse_token(&ctx->parse_context)->type ) );
@@ -1213,12 +1216,12 @@ static void handle_function_definition(struct ast_context *ctx, struct ast_node 
 		statement_node(ctx, &block_node);
 		ast_assert(ctx, block_node->type == AST_BLOCK_STMT, "expected { after function");
 	}
-	linked_list_prepend( program_node->program_data.body, decl );
+	linked_list_prepend( ctx->program_node->program_data.body, decl );
 	ctx->function = NULL;
 	decl->func_decl_data.body = block_node;
 }
 
-static int handle_function_definition_or_variable_declaration(struct ast_context *ctx, struct ast_node *program_node)
+static int handle_function_definition_or_variable_declaration(struct ast_context *ctx)
 {
 	struct ast_node* type_decl = NULL;
 	int td = type_declaration( ctx , &type_decl );
@@ -1232,19 +1235,17 @@ static int handle_function_definition_or_variable_declaration(struct ast_context
 	
 	if(!ast_accept(ctx, '('))
 	{
-		handle_function_definition(ctx, program_node, type_decl, id);
+		handle_function_definition(ctx, type_decl, id);
 		return 0;
 	}
 	struct ast_node *variable_decl = handle_variable_declaration(ctx, type_decl, id, 0);
-	linked_list_prepend( program_node->program_data.body, variable_decl );
+	linked_list_prepend( ctx->program_node->program_data.body, variable_decl );
+	ast_expect( ctx, ';', "missing ;" );
 	return 0;
 }
 
-static struct ast_node *program(struct ast_context *ctx)
+static void program(struct ast_context *ctx)
 {
-    struct ast_node *program_node = push_node(ctx, AST_PROGRAM);
-    program_node->program_data.body = linked_list_create(void*);
-    
     while(1)
     {
         if(!ast_accept(ctx, TK_EOF)) break;
@@ -1263,54 +1264,34 @@ static struct ast_node *program(struct ast_context *ctx)
             continue;
         } else
 		{
-			if(handle_function_definition_or_variable_declaration(ctx, program_node))
+			if(handle_function_definition_or_variable_declaration(ctx))
 			{
-				struct ast_node* stmt;
-				statement( ctx, &stmt );
-				linked_list_prepend( program_node->program_data.body, stmt );
+				//struct ast_node* stmt;
+				//statement( ctx, &stmt );
+				//linked_list_prepend( ctx->program_node->program_data.body, stmt );
+				ast_error(ctx, "expected function or global variable declaration");
 			}
 		}
 	}
-    return program_node;
 }
 
-//TODO: fix head/root expression/statement flow
-int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool verbose)
+int ast_process_tokens(
+	ast_context_t *ctx,
+	struct token *tokens,
+	int num_tokens
+)
 {
-    struct ast_context context = {
-        .root_node = NULL,
-        .node_list = NULL,
-        .verbose = verbose,
-        .function = NULL,
-        .last_node = NULL,
-        .type_definitions = hash_map_create(struct ast_node),
-		.numtypes = 0
-    };
+	ctx->function = ctx->default_function;
+    ctx->parse_context.current_token = NULL;
+    ctx->parse_context.num_tokens = num_tokens;
+    ctx->parse_context.token_index = 0;
+    ctx->parse_context.tokens = tokens;
 
-    context.parse_context.current_token = NULL;
-    context.parse_context.num_tokens = num_tokens;
-    context.parse_context.token_index = 0;
-    context.parse_context.tokens = tokens;
-
-    if(setjmp(context.jmp))
+    if(setjmp(ctx->jmp))
     {
-        printf("generating AST failed\n");
-		goto fail;
+		return 1;
     }
     
-	context.node_list = linked_list_create( struct ast_node );
-    context.root_node = program(&context);
-    
-    if(context.root_node)
-    {
-        if(context.verbose)
-            print_ast(context.root_node, 0);
-
-        *root = context.root_node;
-        *ll = context.node_list;
-        return 0;
-    }
-fail:
-    linked_list_destroy(&context.node_list);
-	return 1;
+    program(ctx);
+	return 0;
 }

@@ -5,6 +5,10 @@
 #include "rhd/heap_string.h"
 #include "data_type.h"
 #include "rhd/hash_string.h"
+#include "rhd/hash_map.h"
+#include "arena.h"
+
+#include <setjmp.h>
 
 //TODO: implement later
 typedef enum
@@ -106,20 +110,24 @@ enum FLAGS
 
 static const char *register_x86_names[] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi","eip",NULL};
 
-struct variable
+typedef struct variable_s
 {
     int offset;
     int is_param;
     struct ast_node *data_type_node;
-};
+} variable_t;
 
-struct function
+#define FUNCTION_NAME_MAX_CHARACTERS (64)
+
+typedef struct function_s
 {
-    int location;
-    const char *name;
+	char name[FUNCTION_NAME_MAX_CHARACTERS];
+	
     struct hash_map *variables;
     int localvariablesize;
-};
+	
+	heap_string bytecode;
+} function_t;
 
 typedef struct
 {
@@ -206,20 +214,27 @@ typedef struct
 	int pointersize;
 } fundamental_type_size_t;
 
+#define COMPILER_MAX_FUNCTIONS (64)
+#define COMPILER_MAX_SCOPES (16)
+
 typedef struct compiler_s
 {
+	arena_t *allocator;
+	int numbits;
+	
+    jmp_buf jmp;
+	
     int build_target;
     u32 entry;
     heap_string data;
 
     struct linked_list *relocations;
-    struct linked_list *functions;
     
 	fundamental_type_size_t fts;
 	
 	heap_string instr;
 
-    struct function *function;
+    function_t *function;
 
     intptr_t registers[8];
 	indexed_data_t indexed_data[MAX_INDEXED_DATA];
@@ -229,7 +244,7 @@ typedef struct compiler_s
 	//TODO: FIXME implement better way to do this with register allocation e.g buckets/graph coloring
 	int register_usage[REGISTER_X86_MAX];
 	
-    struct scope *scope[16]; //TODO: N number of scopes, dynamic array / stack
+    struct scope *scope[COMPILER_MAX_SCOPES]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
 
     void* find_import_fn_userptr;
@@ -238,6 +253,8 @@ typedef struct compiler_s
 	int (*lvalue)(struct compiler_s *ctx, reg_t reg, struct ast_node *n);
 	
 	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
+	
+	struct hash_map *functions;
 } compiler_t;
 
 static int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len)
@@ -249,5 +266,40 @@ static int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len)
 	id->length = len;
 	id->buffer = buffer;
 	return id->index;
+}
+
+static function_t *compiler_alloc_function(compiler_t *ctx, const char *name)
+{
+	function_t gv;
+	snprintf(gv.name, sizeof(gv.name), "%s", name);
+	gv.localvariablesize = 0;
+	//TODO: free/cleanup variables
+	gv.variables = hash_map_create_with_custom_allocator(variable_t, ctx->allocator, arena_alloc);
+	
+	hash_map_insert(ctx->functions, name, gv);
+	
+	//TODO: FIXME make insert return a reference to the data inserted instead of having to find it again.
+	return hash_map_find(ctx->functions, name);
+}
+
+static void compiler_init(compiler_t *c, arena_t *allocator, int numbits)
+{
+	assert(numbits == 64);
+	
+	//x64
+	c->fts.longsize = 64;
+	c->fts.intsize = 32;
+	c->fts.shortsize = 16;
+	c->fts.charsize = 8;
+	c->fts.floatsize = 32;
+	c->fts.doublesize = 64;
+	c->fts.pointersize = 64;
+	
+	c->numbits = numbits;
+	c->allocator = allocator;
+	c->functions = hash_map_create_with_custom_allocator(function_t, c->allocator, arena_alloc);
+	
+	//mainly just holder for global variables and maybe code without function
+	c->function = compiler_alloc_function(c, "_global_variables");
 }
 #endif
