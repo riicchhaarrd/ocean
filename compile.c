@@ -1,166 +1,59 @@
 #include "std.h"
-#include "codegen.h"
+#include "ast.h"
+#include "compile.h"
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
-//gcc -w -g test.c codegen.c ast.c lex.c parse.c && ./a.out
-static void visit_ast_node(traverse_context_t *ctx, ast_node_t *n)
+#include "codegen_targets.h"
+//gcc -w -g test.c compile.c ast.c lex.c parse.c && ./a.out
+
+int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len)
 {
-    if (ctx->single_result)
-    {
-        ctx->visiteestacksize = (ctx->visiteestacksize + 1) % COUNT_OF(ctx->visiteestack);
-        ctx->visiteestack[ctx->visiteestacksize] = n;
-    }
-    //printf("n=%s\n", AST_NODE_TYPE_to_string(n->type));
-    if (ctx->visitor(n, ctx->userdata))
-    {
-        if (ctx->single_result)
-        {
-            longjmp(ctx->jmp, 1);
-        }
-        else
-        {
-            if (ctx->numresults + 1 >= ctx->maxresults)
-            {
-                ctx->overflow = 1;
-                longjmp(ctx->jmp, 1);
-            }
-            ctx->results[ctx->numresults++] = n;
-        }
-    }
+	if(ctx->numindexeddata + 1 >= MAX_INDEXED_DATA)
+		perror("out of memory for indexed data");
+	indexed_data_t *id = &ctx->indexed_data[ctx->numindexeddata++];
+	id->index = ctx->numindexeddata - 1;
+	id->length = len;
+	id->buffer = buffer;
+	return id->index;
 }
 
-static void traverse_node(traverse_context_t *ctx, ast_node_t* n)
+function_t *compiler_alloc_function(compiler_t *ctx, const char *name)
 {
-    visit_ast_node(ctx, n);
-    switch (n->type)
-    {
-    case AST_PROGRAM:
-        linked_list_reversed_foreach(n->program_data.body, ast_node_t**, it,
-        {
-            traverse_node(ctx, *it);
-        });
-        break;
-    case AST_BLOCK_STMT:
-        linked_list_reversed_foreach(n->block_stmt_data.body, ast_node_t**, it,
-        {
-            traverse_node(ctx, *it);
-        });
-        break;
-
-    case AST_VARIABLE_DECL:
-        traverse_node(ctx, n->variable_decl_data.data_type);
-        traverse_node(ctx, n->variable_decl_data.id);
-        traverse_node(ctx, n->variable_decl_data.initializer_value);
-        break;
-
-    case AST_FUNCTION_DECL:
-    {
-        traverse_node(ctx, n->func_decl_data.id);
-        for(int i = 0; i < n->func_decl_data.numparms; ++i)
-            traverse_node(ctx, n->func_decl_data.parameters[i]);
-        traverse_node(ctx, n->func_decl_data.body);
-        for (int i = 0; i < n->func_decl_data.numdeclarations; ++i)
-            traverse_node(ctx, n->func_decl_data.declarations[i]);
-        traverse_node(ctx, n->func_decl_data.return_data_type); //TODO: maybe put these into their own node type
-    } break;
-
-    case AST_FOR_STMT:
-        traverse_node(ctx, n->for_stmt_data.body);
-        traverse_node(ctx, n->for_stmt_data.init);
-        traverse_node(ctx, n->for_stmt_data.test);
-        traverse_node(ctx, n->for_stmt_data.update);
-        break;
-
-    case AST_WHILE_STMT:
-        traverse_node(ctx, n->while_stmt_data.body);
-        traverse_node(ctx, n->while_stmt_data.test);
-        break;
-
-    case AST_RETURN_STMT:
-        traverse_node(ctx, n->return_stmt_data.argument);
-        break;
-    }
+	function_t gv;
+	snprintf(gv.name, sizeof(gv.name), "%s", name);
+	gv.localvariablesize = 0;
+	//TODO: free/cleanup variables
+	gv.variables = hash_map_create_with_custom_allocator(variable_t, ctx->allocator, arena_alloc);
+	gv.bytecode = NULL;
+	hash_map_insert(ctx->functions, name, gv);
+	
+	//TODO: FIXME make insert return a reference to the data inserted instead of having to find it again.
+	return hash_map_find(ctx->functions, name);
 }
 
-ast_node_t* ast_tree_traverse_get_visitee(traverse_context_t *ctx, size_t index)
+void compiler_init(compiler_t *c, arena_t *allocator, int numbits)
 {
-    size_t max = COUNT_OF(ctx->visiteestack);
-    if (index >= max)
-        return NULL;
-    return ctx->visiteestack[(ctx->visiteestacksize - index) % max];
-}
-
-ast_node_t *ast_tree_traverse(traverse_context_t *ctx, ast_node_t *head, traversal_fn_t visitor, void *userdata)
-{
-    if (!head)
-        return NULL;
-    ctx->visitor = visitor;
-    ctx->userdata = userdata;
-    if (setjmp(ctx->jmp))
-    {
-        if (ctx->overflow)
-            return NULL;
-        return ast_tree_traverse_get_visitee(ctx, 0);
-    }
-    traverse_node(ctx, head);
-    return NULL;
-}
-
-static int ast_filter_type(ast_node_t* n, int* ptype)
-{
-    if (n->type == *ptype)
-        return 1;
-    return 0;
-}
-
-static int ast_filter_node(ast_node_t* n, ast_node_t *node)
-{
-    if (n == node)
-        return 1;
-    return 0;
-}
-
-static int ast_filter_identifier(ast_node_t* n, const char** id)
-{
-    if (n->type == AST_IDENTIFIER && !strcmp(n->identifier_data.name, *id))
-        return 1;
-    return 0;
-}
-
-ast_node_t* ast_tree_node_by_type(traverse_context_t* ctx, ast_node_t* head, int type)
-{
-    ctx->single_result = 1;
-    return ast_tree_traverse(ctx, head, ast_filter_type, &type);
-}
-
-ast_node_t* ast_tree_node_by_node(traverse_context_t* ctx, ast_node_t* head, ast_node_t *node)
-{
-    ctx->single_result = 1;
-    return ast_tree_traverse(ctx, head, ast_filter_node, node);
-}
-
-size_t ast_tree_nodes_by_type(traverse_context_t* ctx, ast_node_t* head, int type, ast_node_t **results, size_t maxresults)
-{
-    ctx->single_result = 0;
-    ctx->results = results;
-    ctx->maxresults = maxresults;
-    ctx->numresults = 0;
-    ast_tree_traverse(ctx, head, ast_filter_type, &type);
-    return ctx->numresults;
-}
-
-ast_node_t* ast_tree_node_by_identifier(traverse_context_t* ctx, ast_node_t* head, const char *id, int type)
-{
-    ctx->single_result = 1;
-    if (!ast_tree_traverse(ctx, head, ast_filter_identifier, &id))
-        return NULL;
-    for (int i = 1; i < COUNT_OF(ctx->visiteestack); ++i)
-    {
-        ast_node_t *n = ast_tree_traverse_get_visitee(ctx, i);
-        if (!n || type == AST_NONE || n->type == type)
-            return n;
-    }
-    return NULL;
+	assert(numbits == 64);
+	
+	memset(c, 0, sizeof(compiler_t));
+	
+	//x64
+	c->fts.longsize = 64;
+	c->fts.intsize = 32;
+	c->fts.shortsize = 16;
+	c->fts.charsize = 8;
+	c->fts.floatsize = 32;
+	c->fts.doublesize = 64;
+	c->fts.pointersize = 64;
+	
+	codegen_x64(&c->cg);
+	
+	c->numbits = numbits;
+	c->allocator = allocator;
+	c->functions = hash_map_create_with_custom_allocator(function_t, c->allocator, arena_alloc);
+	
+	//mainly just holder for global variables and maybe code without function
+	c->function = compiler_alloc_function(c, "_global_variables");
 }
 
 static int fundamental_type_size(compiler_t *ctx, int type)
@@ -424,8 +317,39 @@ static void compiler_assert_r(compiler_t *ctx, int expr, const char *expr_str, c
 	longjmp(ctx->jmp, 1);
 }
 
-int process(compiler_t* ctx, ast_node_t* n)
+static void vreg_map(compiler_t *ctx, vreg_t *out, vreg_t reg)
 {
+	if(reg == VREG_ANY)
+	{
+		reg = VREG_0;
+		for(int i = 0; i < 4; ++i)
+		{
+			if(ctx->vregister_usage[VREG_0 + i] <= ctx->vregister_usage[reg])
+				reg = VREG_0 + i;
+		}
+	}
+	if(ctx->vregister_usage[reg] > 0)
+	{
+		ctx->cg.push(ctx, reg);
+	}
+	++ctx->vregister_usage[reg];
+	*out = reg;
+}
+
+static void vreg_unmap(compiler_t *ctx, vreg_t *regptr)
+{
+	vreg_t reg = *regptr;
+	
+	if(ctx->vregister_usage[reg] > 0)
+	{
+		ctx->cg.pop(ctx, reg);
+		--ctx->vregister_usage[reg];
+	}
+}
+
+vreg_t process(compiler_t* ctx, ast_node_t* n)
+{
+	codegen_t *cg = &ctx->cg;
 	printf("n->type=%s\n",AST_NODE_TYPE_to_string(n->type));
 	switch (n->type)
     {
@@ -442,6 +366,18 @@ int process(compiler_t* ctx, ast_node_t* n)
 			
 			print_value(&lhs_value);
 			print_value(&rhs_value);
+			
+			vreg_t a, b, c;
+			vreg_map(ctx, &a, VREG_ANY);
+			vreg_map(ctx, &b, VREG_ANY);
+			
+			cg->mov_r_imm32(ctx, a, getvregval(&lhs_value.data.value), NULL);
+			cg->mov_r_imm32(ctx, b, getvregval(&rhs_value.data.value), NULL);
+			c = cg->add(ctx, a, b);
+			//do something with result in vreg c
+			vreg_unmap(ctx, &a);
+			vreg_unmap(ctx, &b);
+			return c;
         } break;
 		
 		case AST_ASSIGNMENT_EXPR:
@@ -494,7 +430,7 @@ int process(compiler_t* ctx, ast_node_t* n)
 					numbits += variable_size;
 				}
 				
-				printf("numbytes=%d\n",numbytes);
+				printf("numbytes=%d\n",numbits/8);
 				
 				//process(ctx, n->func_decl_data.body);
 				ctx->function = oldfunc;

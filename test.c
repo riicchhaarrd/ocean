@@ -9,8 +9,9 @@
 
 #include "rhd/hash_string.h"
 
+#include "std.h"
 #include "ast.h"
-#include "codegen.h"
+#include "compile.h"
 #include "parse.h"
 #include "token.h"
 #include "arena.h"

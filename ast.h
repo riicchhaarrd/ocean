@@ -333,4 +333,29 @@ struct ast_context
 typedef struct ast_context ast_context_t;
 void ast_init_context(ast_context_t *ctx, arena_t *allocator);
 int ast_process_tokens(ast_context_t*, struct token *tokens, int num_tokens);
+
+//TODO: refactor traverse_context name to ast
+
+typedef int (*traversal_fn_t)(ast_node_t*, void*);
+
+typedef struct
+{
+	jmp_buf jmp;
+	traversal_fn_t visitor;
+	void* userdata;
+	size_t visiteestacksize;
+	ast_node_t* visiteestack[8];
+	int single_result;
+	int overflow;
+	ast_node_t **results;
+	size_t maxresults, numresults;
+} traverse_context_t;
+
+ast_node_t* ast_tree_traverse(traverse_context_t* ctx, ast_node_t* head, traversal_fn_t visitor, void* userdata);
+ast_node_t* ast_tree_node_by_type(traverse_context_t* ctx, ast_node_t* head, int type);
+ast_node_t* ast_tree_node_by_identifier(traverse_context_t* ctx, ast_node_t* head, const char* id, int type);
+ast_node_t* ast_tree_traverse_get_visitee(traverse_context_t* ctx, size_t index);
+size_t ast_tree_nodes_by_type(traverse_context_t* ctx, ast_node_t* head, int type, ast_node_t** results, size_t maxresults);
+ast_node_t* ast_tree_node_by_node(traverse_context_t* ctx, ast_node_t* head, ast_node_t* node);
+
 #endif

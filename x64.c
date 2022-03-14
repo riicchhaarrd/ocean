@@ -1,63 +1,82 @@
 //TODO: implement all opcodes we'll be using so we can keep track of the registers and their values
 //TODO: replace our "real" registers with "virtual" registers
 
-#include "codegen.h"
 #include "token.h"
 #include "rhd/linked_list.h"
 #include <assert.h>
 #include <stdlib.h>
+#include "buffer_util.h"
+#include "compile.h"
+#include "codegen.h"
 
-static int instruction_position(compiler_t *ctx)
+typedef enum
 {
-    return heap_string_size(&ctx->instr);
-}
+	//TODO: add 16/8 bit?
+	
+	//32-bit registers
+    EAX,
+    ECX,
+    EDX,
+    EBX,
+    ESP,
+    EBP,
+    ESI,
+    EDI,
+	
+	//64-bit registers
+	RAX,
+    RCX,
+    RDX,
+    RBX,
+    RSP,
+    RBP,
+    RSI,
+    RDI,
+    R8,
+    R9,
+    R10,
+    R11,
+    R12,
+    R13,
+    R14,
+    R15
+} x64_register_t;
 
-static void dd(compiler_t *ctx, u32 i)
+typedef enum
 {
-    union
-    {
-        uint32_t i;
-        uint8_t b[4];
-    } u = { .i = i };
-    
-    for(size_t i = 0; i < 4; ++i)
-		heap_string_push(&ctx->instr, u.b[i]);
-}
+	CF = 1,
+	PF = 0x4,
+	AF = 0x10,
+	ZF = 0x40,
+	SF = 0x80,
+	TP = 0x100,
+	IF = 0x200,
+	DF = 0x400,
+	OF = 0x800
+} x64_flags_t;
 
-static void dw(compiler_t *ctx, u16 i)
-{
-    union
-    {
-        uint16_t s;
-        uint8_t b[2];
-    } u = { .s = i };
-
-    heap_string_push(&ctx->instr, u.b[0]);
-    heap_string_push(&ctx->instr, u.b[1]);
-}
-
-static void db(compiler_t *ctx, u8 op)
-{
-    heap_string_push(&ctx->instr, op);
-}
-
-static void set8(compiler_t *ctx, int offset, u8 op)
-{
-    ctx->instr[offset] = op;
-}
-
-static void set32(compiler_t *ctx, int offset, u32 value)
-{
-    u32 *ptr = (u32*)&ctx->instr[offset];
-    *ptr = value;
-}
-
-static void buf(compiler_t *ctx, const char *buf, size_t len)
-{
-    for(size_t i = 0; i < len; ++i)
-    {
-		heap_string_push(&ctx->instr, buf[i] & 0xff);
-    }
+static int map_vreg(compiler_t *ctx, vreg_t reg)
+{	
+	switch(reg)
+	{
+		case VREG_0:
+		case VREG_1:
+		case VREG_2:
+		case VREG_3:
+			return RAX + (reg - VREG_0);
+			
+		case VREG32_0:
+		case VREG32_1:
+		case VREG32_2:
+		case VREG32_3:
+			return EAX + (reg - VREG32_0);
+			
+		case VREG_SP:
+			return RSP;
+		case VREG_BP:
+			return RBP;
+	}
+	return -1;
 }
 
 static void nop(compiler_t *ctx)
@@ -155,7 +174,7 @@ static void int3(compiler_t *ctx)
 	ctx->print(ctx, "int3");
 }
 
-static void push(compiler_t *ctx, reg_t reg)
+static void push(compiler_t *ctx, vreg_t reg)
 {
 	if (reg >= R8)
 	{
@@ -168,7 +187,7 @@ static void push(compiler_t *ctx, reg_t reg)
 	}
 }
 
-static reg_t inc(compiler_t *ctx, reg_t reg)
+static vreg_t inc(compiler_t *ctx, vreg_t reg)
 {
 	//TODO: FIXME proper EAX/RAX and other registers seperation?
 	//for now just stick to use rax > eax
@@ -186,7 +205,7 @@ static reg_t inc(compiler_t *ctx, reg_t reg)
 	return reg;
 }
 
-static void pop(compiler_t *ctx, reg_t reg)
+static void pop(compiler_t *ctx, vreg_t reg)
 {
 	if(reg >= R8)
 	{
@@ -199,7 +218,7 @@ static void pop(compiler_t *ctx, reg_t reg)
 }
 
 //mov rax,imm32
-static void mov_r_imm32(compiler_t *ctx, reg_t reg, i32 imm, int *data_loc)
+static void mov_r_imm32(compiler_t *ctx, vreg_t reg, i32 imm, int *data_loc)
 {
 	db(ctx, 0x48);
 	db(ctx, 0xc7);
@@ -209,7 +228,7 @@ static void mov_r_imm32(compiler_t *ctx, reg_t reg, i32 imm, int *data_loc)
     dd(ctx, imm);
 }
 
-static reg_t add(compiler_t *ctx, reg_t a, reg_t b)
+static vreg_t add(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x01);
@@ -217,7 +236,7 @@ static reg_t add(compiler_t *ctx, reg_t a, reg_t b)
 	return a;
 }
 
-static reg_t mov(compiler_t *ctx, reg_t a, reg_t b)
+static vreg_t mov(compiler_t *ctx, vreg_t a, vreg_t b)
 {
 	if(a == b)
 		return a; //e.g mov eax,eax do nothing
@@ -227,14 +246,14 @@ static reg_t mov(compiler_t *ctx, reg_t a, reg_t b)
 	return a;
 }
 
-static void test(compiler_t *ctx, reg_t a, reg_t b)
+static void test(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x85);
     db(ctx, 0xc0 + b * 8 + a);
 }
 
-static reg_t imul(compiler_t *ctx, reg_t reg)
+static vreg_t imul(compiler_t *ctx, vreg_t reg)
 {
     db(ctx, 0x48);
     db(ctx, 0xf7);
@@ -242,7 +261,7 @@ static reg_t imul(compiler_t *ctx, reg_t reg)
 	return EAX;
 }
 
-static reg_t idiv(compiler_t *ctx, reg_t reg)
+static vreg_t idiv(compiler_t *ctx, vreg_t reg)
 {
     db(ctx, 0x48);
     db(ctx, 0xf7);
@@ -256,7 +275,7 @@ static void int_imm8(compiler_t *ctx, u8 value)
 	db(ctx, value);
 }
 
-static void exit_instr(compiler_t *ctx, reg_t reg)
+static void exit_instr(compiler_t *ctx, vreg_t reg)
 {
 	mov(ctx, EDI, reg);
 	mov_r_imm32(ctx, EAX, 60, NULL);
@@ -265,7 +284,7 @@ static void exit_instr(compiler_t *ctx, reg_t reg)
 	db(ctx, 0x05);
 }
 
-static reg_t xor(compiler_t *ctx, reg_t a, reg_t b)
+static vreg_t xor(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
 	db( ctx, 0x31 );
@@ -298,14 +317,14 @@ static void invoke_syscall(compiler_t *ctx, struct ast_node **args, int numargs)
 	db(ctx, 0x05);
 }
 
-static void cmp(compiler_t *ctx, reg_t a, reg_t b)
+static void cmp(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x39);
     db(ctx, 0xc0 + b * 8 + a);
 }
 
-static int if_beg(compiler_t *ctx, reg_t a, int operator, reg_t b, int *offset)
+static int if_beg(compiler_t *ctx, vreg_t a, int operator, vreg_t b, int *offset)
 {
 	//debugging
 	int3(ctx);
@@ -384,7 +403,7 @@ static void call_imm32(compiler_t *ctx, int loc)
 	ctx->print(ctx, "call 0x%x", loc);
 }
 
-static void call_r32(compiler_t *ctx, reg_t reg)
+static void call_r32(compiler_t *ctx, vreg_t reg)
 {
 	db(ctx, 0xff);
 	db(ctx, 0xd0 + reg);
@@ -396,7 +415,7 @@ static void ret(compiler_t *ctx)
 	db(ctx, 0xc3);
 }
 
-static reg_t add_imm8_to_r32(compiler_t *ctx, reg_t a, u8 value)
+static vreg_t add_imm8_to_r32(compiler_t *ctx, vreg_t a, u8 value)
 {
     db(ctx, 0x48);
     db(ctx, 0x83);
@@ -406,7 +425,7 @@ static reg_t add_imm8_to_r32(compiler_t *ctx, reg_t a, u8 value)
 	return a;
 }
 
-static reg_t add_imm32_to_r32(compiler_t *ctx, reg_t a, u32 value)
+static vreg_t add_imm32_to_r32(compiler_t *ctx, vreg_t a, u32 value)
 {
     db(ctx, 0x48);
     db(ctx, 0x81);
@@ -416,7 +435,7 @@ static reg_t add_imm32_to_r32(compiler_t *ctx, reg_t a, u32 value)
 	return a;
 }
 
-static reg_t sub(compiler_t *ctx, reg_t a, reg_t b)
+static vreg_t sub(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x29);
@@ -425,25 +444,25 @@ static reg_t sub(compiler_t *ctx, reg_t a, reg_t b)
 	return a;
 }
 
-static void load_regn_base_offset_imm32(compiler_t *ctx, reg_t reg, i32 imm)
+static void load_regn_base_offset_imm32(compiler_t *ctx, vreg_t reg, i32 imm)
 {	
 	// mov r64,[rbp - offset]
 	db(ctx, 0x48);
 	db(ctx, 0x8b);
 	db(ctx, 0x85 + 8 * reg);
-	dd(ctx, imm);
+	dd(ctx, -imm);
 }
 
-static void load_address_regn_base_offset_imm32(compiler_t *ctx, reg_t reg, i32 imm)
+static void load_address_regn_base_offset_imm32(compiler_t *ctx, vreg_t reg, i32 imm)
 {
 	// lea r64,[rbp - offset]
     db(ctx, 0x48);
 	db(ctx, 0x8d);
 	db(ctx, 0x85 + 8 * reg);
-	dd(ctx, imm);	
+	dd(ctx, -imm);	
 }
 
-static void sub_r64_imm32(compiler_t *ctx, reg_t reg, i32 imm)
+static void sub_r64_imm32(compiler_t *ctx, vreg_t reg, i32 imm)
 {
     db(ctx, 0x48);
     db(ctx, 0x81);
@@ -451,12 +470,12 @@ static void sub_r64_imm32(compiler_t *ctx, reg_t reg, i32 imm)
 	dd(ctx, imm);
 }
 
-static void sub_regn_imm32(compiler_t *ctx, reg_t reg, i32 imm)
+static void sub_regn_imm32(compiler_t *ctx, vreg_t reg, i32 imm)
 {
 	sub_r64_imm32(ctx, reg, imm);
 }
 
-static void and(compiler_t *ctx, reg_t a, reg_t b)
+static void and(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x21);
@@ -464,7 +483,7 @@ static void and(compiler_t *ctx, reg_t a, reg_t b)
 	ctx->print(ctx, "add %s, %s", register_x86_names[a], register_x86_names[b]);
 }
 
-static void or(compiler_t *ctx, reg_t a, reg_t b)
+static void or(compiler_t *ctx, vreg_t a, vreg_t b)
 {
     db(ctx, 0x48);
     db(ctx, 0x09);
@@ -472,7 +491,7 @@ static void or(compiler_t *ctx, reg_t a, reg_t b)
 	ctx->print(ctx, "or %s, %s", register_x86_names[a], register_x86_names[b]);
 }
 
-static reg_t mod(compiler_t *ctx, reg_t a, reg_t b)
+static vreg_t mod(compiler_t *ctx, vreg_t a, vreg_t b)
 {
 	if(a == EAX)
 	{
@@ -484,19 +503,19 @@ static reg_t mod(compiler_t *ctx, reg_t a, reg_t b)
 	}
 	push(ctx, a);
 	mov(ctx, EAX, a);
-	reg_t dst = mod(ctx, EAX, b);
+	vreg_t dst = mod(ctx, EAX, b);
 	pop(ctx, a);
 	return dst;
 }
 
-static void load_reg(compiler_t *ctx, reg_t a, reg_t b)
+static void load_reg(compiler_t *ctx, vreg_t a, vreg_t b)
 {
 	db( ctx, 0x48 );
 	db( ctx, 0x8b );
 	db( ctx, a * 8 + b );
 }
 
-static void store_reg(compiler_t *ctx, reg_t a, reg_t b)
+static void store_reg(compiler_t *ctx, vreg_t a, vreg_t b)
 {
 	db( ctx, 0x48 );
 	db( ctx, 0x89 );
@@ -510,7 +529,7 @@ static int add_data(compiler_t *ctx, void *data, u32 data_size)
 	return curpos;
 }
 
-static void mov_r_string(compiler_t *ctx, reg_t reg, const char *str)
+static void mov_r_string(compiler_t *ctx, vreg_t reg, const char *str)
 {
 	int from;
 	mov_r_imm32(ctx, reg, 0xcccccccc, &from); //placeholder
@@ -533,7 +552,7 @@ static void mov_r_string(compiler_t *ctx, reg_t reg, const char *str)
 	linked_list_prepend( ctx->relocations, reloc );
 }
 
-static reg_t neg(compiler_t *ctx, reg_t reg)
+static vreg_t neg(compiler_t *ctx, vreg_t reg)
 {	
 	//neg eax
 	//db(ctx, 0xf7);

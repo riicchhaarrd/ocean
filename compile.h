@@ -7,25 +7,52 @@
 #include "rhd/hash_string.h"
 #include "rhd/hash_map.h"
 #include "arena.h"
+#include "codegen.h"
 
 #include <setjmp.h>
 
 //TODO: implement later
-typedef enum
+enum vreg_s
 {
-	VREG8,
-	//VREG8 + 1...
-	VREG16 = 4,
-	//VREG16 + 1...
-	VREG32 = 8,
-	//VREG32 + 1...
-	VREG64 = 12,
+	VREG8_ANY,
+	VREG8_0,
+	VREG8_1,
+	VREG8_2,
+	VREG8_3,
 	
-	VREGSP = 16,
-	VREGBP,
-	VREGIP,
-	VREGMAX
-} vreg_t;
+	VREG16_ANY,
+	VREG16_0,
+	VREG16_1,
+	VREG16_2,
+	VREG16_3,
+	
+	VREG32_ANY,
+	VREG32_0,
+	VREG32_1,
+	VREG32_2,
+	VREG32_3,
+	
+	VREG64_ANY,
+	VREG64_0,
+	VREG64_1,
+	VREG64_2,
+	VREG64_3,
+	
+	//use VREG_ANY unless you specifically need to move things to another register e.g mov VREG_0, VREG_1
+	//or when you need atleast N amount of bits use any of the 8/16/32/64 VREG values
+	
+	VREG_ANY,
+	VREG_0,
+	VREG_1,
+	VREG_2,
+	VREG_3,
+	
+	VREG_SP,
+	VREG_BP,
+	VREG_IP,
+	VREG_MAX
+};
+typedef enum vreg_s vreg_t;
 
 typedef struct
 {
@@ -69,47 +96,6 @@ static void setvregvalindex(vregval_t *rv, int index)
 	rv->dd[0] = index;
 }
 
-typedef enum
-{
-    EAX, //0
-    ECX, //1
-    EDX, //2
-    EBX, //3
-    ESP, //4
-    EBP, //5
-    ESI, //6
-    EDI, //7
-
-    //x64
-    R8,
-    R9,
-    R10,
-    R11,
-    R12,
-    R13,
-    R14,
-    R15,
-
-    EIP,
-    REGISTER_X86_FLAGS,
-    REGISTER_X86_MAX
-} reg_t;
-
-enum FLAGS
-{
-	X86_CARRY_FLAG = 1,
-	X86_PARITY_FLAG = 0x4,
-	X86_ADJUST_FLAG = 0x10,
-	X86_ZERO_FLAG = 0x40,
-	X86_SIGN_FLAG = 0x80,
-	X86_TRAP_FLAG = 0x100,
-	X86_INTERRUPT_ENABLE_FLAG = 0x200,
-	X86_DIRECTION_FLAG = 0x400,
-	X86_OVERFLOW_FLAG = 0x800
-};
-
-static const char *register_x86_names[] = {"eax","ecx","edx","ebx","esp","ebp","esi","edi","eip",NULL};
-
 typedef struct variable_s
 {
     int offset;
@@ -129,12 +115,13 @@ typedef struct function_s
 	heap_string bytecode;
 } function_t;
 
-typedef struct
+struct reljmp_s
 {
     i32 data_index;
     i32 ip;
     int type;
-} reljmp_t;
+};
+typedef struct reljmp_s reljmp_t;
 
 #define RJ_JNZ (1)
 #define RJ_JZ (2)
@@ -217,8 +204,9 @@ typedef struct
 #define COMPILER_MAX_FUNCTIONS (64)
 #define COMPILER_MAX_SCOPES (16)
 
-typedef struct compiler_s
+struct compiler_s
 {
+	codegen_t cg;
 	arena_t *allocator;
 	int numbits;
 	
@@ -242,7 +230,7 @@ typedef struct compiler_s
 
 	//TODO: keep track of how many times register is being used to prevent clobbering and unneccessary push/pops
 	//TODO: FIXME implement better way to do this with register allocation e.g buckets/graph coloring
-	int register_usage[REGISTER_X86_MAX];
+	int vregister_usage[VREG_MAX];
 	
     struct scope *scope[COMPILER_MAX_SCOPES]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
@@ -255,51 +243,11 @@ typedef struct compiler_s
 	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
 	
 	struct hash_map *functions;
-} compiler_t;
+};
 
-static int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len)
-{
-	if(ctx->numindexeddata + 1 >= MAX_INDEXED_DATA)
-		perror("out of memory for indexed data");
-	indexed_data_t *id = &ctx->indexed_data[ctx->numindexeddata++];
-	id->index = ctx->numindexeddata - 1;
-	id->length = len;
-	id->buffer = buffer;
-	return id->index;
-}
+typedef struct compiler_s compiler_t;
 
-static function_t *compiler_alloc_function(compiler_t *ctx, const char *name)
-{
-	function_t gv;
-	snprintf(gv.name, sizeof(gv.name), "%s", name);
-	gv.localvariablesize = 0;
-	//TODO: free/cleanup variables
-	gv.variables = hash_map_create_with_custom_allocator(variable_t, ctx->allocator, arena_alloc);
-	
-	hash_map_insert(ctx->functions, name, gv);
-	
-	//TODO: FIXME make insert return a reference to the data inserted instead of having to find it again.
-	return hash_map_find(ctx->functions, name);
-}
-
-static void compiler_init(compiler_t *c, arena_t *allocator, int numbits)
-{
-	assert(numbits == 64);
-	
-	//x64
-	c->fts.longsize = 64;
-	c->fts.intsize = 32;
-	c->fts.shortsize = 16;
-	c->fts.charsize = 8;
-	c->fts.floatsize = 32;
-	c->fts.doublesize = 64;
-	c->fts.pointersize = 64;
-	
-	c->numbits = numbits;
-	c->allocator = allocator;
-	c->functions = hash_map_create_with_custom_allocator(function_t, c->allocator, arena_alloc);
-	
-	//mainly just holder for global variables and maybe code without function
-	c->function = compiler_alloc_function(c, "_global_variables");
-}
+int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len);
+function_t *compiler_alloc_function(compiler_t *ctx, const char *name);
+void compiler_init(compiler_t *c, arena_t *allocator, int numbits);
 #endif
