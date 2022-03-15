@@ -188,7 +188,7 @@ void lvalue( compiler_t* ctx, struct ast_node* n, vreg_t reg )
 	}
 }
 
-void rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
+int rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
 {
 	switch(n->type)
 	{
@@ -231,7 +231,23 @@ void rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
 			}
 			vreg_unmap(ctx, &rhs_reg);
 		} break;
+
+		case AST_ASSIGNMENT_EXPR:
+		{
+			
+			vreg_t a, b;
+			vreg_map(ctx, &a, VREG_ANY);
+			vreg_map(ctx, &b, VREG_ANY);
+			rvalue(ctx, n->assignment_expr_data.rhs, a);
+			lvalue(ctx, n->assignment_expr_data.lhs, b);
+			
+			//TODO: FIXME
+		} break;
+
+		default:
+			return 1;
 	}
+	return 0;
 }
 
 #define compiler_assert(ctx, expr, ...) \
@@ -252,6 +268,12 @@ static void compiler_assert_r(compiler_t *ctx, int expr, const char *expr_str, c
 	longjmp(ctx->jmp, 1);
 }
 
+static struct ast_node *allocate_variable(compiler_t *ctx, struct ast_node *n, const char *varname, int offset, int size)
+{
+	variable_t tv = { .offset = offset, .is_param = 0, .data_type_node = n->variable_decl_data.data_type };
+	hash_map_insert( ctx->function->variables, varname, tv );
+}
+
 vreg_t process(compiler_t* ctx, ast_node_t* n)
 {
 	codegen_t *cg = &ctx->cg;
@@ -263,18 +285,10 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				process(ctx, (*it));
 			} );
 		break;
-		
-		case AST_ASSIGNMENT_EXPR:
-		{
-			
-			vreg_t a, b;
-			vreg_map(ctx, &a, VREG_ANY);
-			vreg_map(ctx, &b, VREG_ANY);
-			rvalue(ctx, n->assignment_expr_data.rhs, a);
-			lvalue(ctx, n->assignment_expr_data.lhs, b);
-			
-			//TODO: FIXME
-		} break;
+
+		case AST_RETURN_STMT:
+
+		break;
 		
 		case AST_BLOCK_STMT:
 		{
@@ -310,9 +324,13 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				int numbits = 0;
 				for (size_t i = 0; i < num_variable_declarations; ++i)
 				{
-					printf("var name = %s %s\n", AST_NODE_TYPE_to_string(variable_declarations[i]->type), variable_declarations[i]->variable_decl_data.id->identifier_data.name);
-					
+					const char *variable_name = variable_declarations[i]->variable_decl_data.id->identifier_data.name;
+					variable_t *tmp = hash_map_find(ctx->function->variables, variable_name);
+					compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
 					int variable_size = data_type_size(ctx, variable_declarations[i]->variable_decl_data.data_type);
+					allocate_variable(ctx, variable_declarations[i], variable_name, numbits / 8, variable_size / 8);
+					printf("var name = %s %s\n", AST_NODE_TYPE_to_string(variable_declarations[i]->type), variable_name);
+					
 					numbits += variable_size;
 				}
 				
@@ -329,25 +347,7 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 		case AST_VARIABLE_DECL:
 		{
 			struct ast_node *id = n->variable_decl_data.id;
-			struct ast_node *data_type_node = n->variable_decl_data.data_type;
 			struct ast_node *iv = n->variable_decl_data.initializer_value;
-			assert(id->type == AST_IDENTIFIER);
-			const char *variable_name = id->identifier_data.name;
-			
-			variable_t *tmp = hash_map_find(ctx->function->variables, variable_name);
-			compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
-			int variable_size = data_type_size(ctx, data_type_node);
-			assert(variable_size > 0);
-			if(ctx->function)
-			{
-				ctx->function->localvariablesize += variable_size;
-
-				int offset = ctx->function->localvariablesize;
-				
-				variable_t tv = { .offset = offset, .is_param = 0, .data_type_node = data_type_node };
-				hash_map_insert( ctx->function->variables, variable_name, tv );
-			} else
-				printf("TODO FIXME global variables\n");
 			if(iv)
 			{
 				struct ast_node c = { .type = AST_ASSIGNMENT_EXPR };
@@ -359,8 +359,17 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 		} break;
 		
 		default:
-		printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
-		break;
+		{
+			vreg_t reg;
+			vreg_map(ctx, &reg, VREG_ANY);
+			if(rvalue(ctx, n, reg))
+			{
+				printf( "unhandled ast node type '%s'\n", AST_NODE_TYPE_to_string( n->type ) );
+				exit( -1 );
+			}
+			vreg_unmap(ctx, &reg);
+			//printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
+		} break;
     }
 }
 

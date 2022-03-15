@@ -106,8 +106,8 @@ static void or(void) { printf("function '%s' is not implemented!", __FUNCTION__)
 static void int3(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void invoke_syscall(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void exit_instr(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
-static void push(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
-static void pop(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
+//static void push(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
+//static void pop(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void load_reg(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void store_reg(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void load_regn_base_offset_imm32(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
@@ -172,6 +172,20 @@ vreg_t sub_regn_imm32(compiler_t* ctx, vreg_t vreg, i32 imm)
 	else
 		db(ctx, 0xe8 + (reg - EAX));
 	dd(ctx, imm);
+}
+
+void push(compiler_t *ctx, vreg_t vreg)
+{
+	x64_register_t reg = map_vreg(vreg);
+	assert(reg >= RAX && reg <= RDI);
+	db(ctx, 0x50 + (reg - RAX));
+}
+
+void pop(compiler_t *ctx, vreg_t vreg)
+{
+	x64_register_t reg = map_vreg(vreg);
+	assert(reg >= RAX && reg <= RDI);
+	db(ctx, 0x58 + (reg - RAX));
 }
 
 void codegen_x64(codegen_t *cg)
