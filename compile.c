@@ -149,7 +149,7 @@ static void vreg_map(compiler_t *ctx, vreg_t *out, vreg_t reg)
 	}
 	if(ctx->vregister_usage[reg] > 0)
 	{
-		printf("push %s\n", vreg_names[reg]);
+		printf("push %s ; %d\n", vreg_names[reg], ctx->vregister_usage[reg]);
 		ctx->cg.push(ctx, reg);
 	}
 	++ctx->vregister_usage[reg];
@@ -160,9 +160,9 @@ static void vreg_unmap(compiler_t *ctx, vreg_t *regptr)
 {
 	vreg_t reg = *regptr;
 	
-	if(ctx->vregister_usage[reg] > 0)
+	if(ctx->vregister_usage[reg] > 1)
 	{
-		printf("pop %s\n", vreg_names[reg]);
+		printf("pop %s ; %d\n", vreg_names[reg], ctx->vregister_usage[reg] - 1);
 		ctx->cg.pop(ctx, reg);
 		--ctx->vregister_usage[reg];
 	}
@@ -174,16 +174,9 @@ void lvalue( compiler_t* ctx, struct ast_node* n, vreg_t reg )
 	{
 		case AST_IDENTIFIER:
 		{
-			const char* variable_name = n->identifier_data.name;
-			variable_t* var = hash_map_find( ctx->function->variables, variable_name );
+			variable_t* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
 			assert( var );
-			struct ast_node *variable_type = var->data_type_node;
-			int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
-
-			printf("mov %s, %s\n", vreg_names[reg], vreg_names[VREG_BP]);
-			ctx->cg.mov(ctx, reg, VREG_BP);
-			printf("sub %s, %d\n", vreg_names[reg], offset);
-			ctx->cg.sub_regn_imm32(ctx, reg, offset);
+			ctx->cg.load_offset_from_stack_to_register(ctx, reg, var->offset, data_type_size(ctx, var->data_type_node) / 8);
 		} break;
 	}
 }
@@ -240,6 +233,8 @@ int rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
 			vreg_map(ctx, &b, VREG_ANY);
 			rvalue(ctx, n->assignment_expr_data.rhs, a);
 			lvalue(ctx, n->assignment_expr_data.lhs, b);
+			vreg_unmap(ctx, &a);
+			vreg_unmap(ctx, &b);
 			
 			//TODO: FIXME
 		} break;

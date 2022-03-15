@@ -53,6 +53,21 @@ enum vreg_s
 	VREG_MAX
 };
 typedef enum vreg_s vreg_t;
+typedef int reg_t;
+
+static int vreg_count_bits(vreg_t reg)
+{
+	if(reg <= VREG8_3)
+		return 8;
+	if(reg <= VREG16_3)
+		return 16;
+	if(reg <= VREG32_3)
+		return 32;
+	if(reg <= VREG64_3)
+		return 64;
+	//any other vreg amount of bits will be determined by the compiler target
+	return -1;
+}
 
 static const char *vreg_names[] = {
 	"vreg8_any",

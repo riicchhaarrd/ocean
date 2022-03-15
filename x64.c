@@ -11,7 +11,12 @@
 
 typedef enum
 {
-	//TODO: add 16/8 bit?
+	//lower 8-bit registers
+	AL,BL,CL,DL
+	//upper 8-bit registers
+	AH,BH,CH,DH
+	//16-bit registers
+	AX,BX,CX,DX
 	
 	//32-bit registers
     EAX,
@@ -22,6 +27,13 @@ typedef enum
     EBP,
     ESI,
     EDI,
+	
+	//lowermost 8-bits register
+	R8B,R9B,R10B,R11B,R12B,R13B,R14B,R15B,
+	//lowermost 16-bits register
+	R8W,R9W,R10W,R11W,R12W,R13W,R14W,R15W,
+	//lowermost 32-bits register
+	R8D,R9D,R10D,R11D,R12D,R13D,R14D,R15D,
 	
 	//64-bit registers
 	RAX,
@@ -39,7 +51,10 @@ typedef enum
     R12,
     R13,
     R14,
-    R15
+    R15,
+	
+	XMM0,XMM1,XMM2,XMM3,XMM4,XMM5,XMM6,XMM7, //SSE2
+	YMM0,YMM1,YMM2,YMM3,YMM4,YMM5,YMM6,YMM7 //AVX
 } x64_register_t;
 
 typedef enum
@@ -54,6 +69,50 @@ typedef enum
 	DF = 0x400,
 	OF = 0x800
 } x64_flags_t;
+
+static int reg_count_bits(x64_register_t reg)
+{
+	if(reg >= AL && reg <= DH)
+		return 8;
+	if(reg >= R8B && reg <= R15B)
+		return 8;
+	if(reg >= R8W && reg <= R15W)
+		return 16;
+	if(reg >= R8D && reg <= R15D)
+		return 32;
+	if(reg >= AX && reg <= DX)
+		return 16;
+	if(reg >= EAX && reg <= EDI)
+		return 32;
+	if(reg >= RAX && reg <= R15)
+		return 64;
+	if(reg >= XMM0 && reg <= XMM7)
+		return 128;
+	if(reg >= YMM0 && reg <= YMM7)
+		return 256;
+	perror("reg_count_bits invalid reg");
+	return -1;
+}
+
+static x64_register_t lower_half_register_bits(x64_register_t reg)
+{
+	if(reg >= AL && reg <= DH) //8-bits is the lowest we can go
+		return -1;
+	if(reg >= AX && reg <= DX) //TODO: add upper_half_register_bits if we wanted to access those
+		return AL + (reg - AX);
+	if(reg >= EAX && reg <= EAX)
+		return AX + (reg - EAX);
+	if(reg >= RAX && reg <= RDI)
+		return EAX + (reg - RAX);
+	//TODO: add the other registers aswell
+	perror("invalid register for lower_half_register_bits");
+	return -1;
+}
+
+//what if we have more virtual registers than real registers
+//then two virtual registers could be assigned to the same real register
+//maybe add a stack and keep track of which virtual register is currently used for which register
+//just like in the VREG map/unmap
 
 static int map_vreg(vreg_t reg)
 {	
@@ -100,7 +159,7 @@ static void add_imm32_to_r32(void) { printf("function '%s' is not implemented!",
 static void inc(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void neg(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 //static void sub_regn_imm32(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
-static void xor(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
+//static void xor(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void and(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void or(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void int3(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
@@ -127,7 +186,7 @@ static void jmp_begin(void) { printf("function '%s' is not implemented!", __FUNC
 static void jmp_end(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 static void add_data(void) { printf("function '%s' is not implemented!", __FUNCTION__); }
 
-void mov_r_imm32(compiler_t* ctx, vreg_t vreg, i32 imm, int* data_loc)
+static void mov_r_imm32(compiler_t* ctx, vreg_t vreg, i32 imm, int* data_loc)
 {
 	x64_register_t reg = map_vreg(vreg);
 	if(reg > EDI)
@@ -147,7 +206,7 @@ void mov_r_imm32(compiler_t* ctx, vreg_t vreg, i32 imm, int* data_loc)
 	dd(ctx, imm);
 }
 
-vreg_t mov(compiler_t* ctx, vreg_t va, vreg_t vb)
+static vreg_t mov(compiler_t* ctx, vreg_t va, vreg_t vb)
 {
 	//a and b must be same size register
 	x64_register_t a = map_vreg(va);
@@ -159,7 +218,7 @@ vreg_t mov(compiler_t* ctx, vreg_t va, vreg_t vb)
 	return va;
 }
 
-vreg_t sub_regn_imm32(compiler_t* ctx, vreg_t vreg, i32 imm)
+static vreg_t sub_regn_imm32(compiler_t* ctx, vreg_t vreg, i32 imm)
 {
 	x64_register_t reg = map_vreg(vreg);
 	if(reg >= RAX && reg <= RDI)
@@ -174,22 +233,88 @@ vreg_t sub_regn_imm32(compiler_t* ctx, vreg_t vreg, i32 imm)
 	dd(ctx, imm);
 }
 
-void push(compiler_t *ctx, vreg_t vreg)
+static void push(compiler_t *ctx, vreg_t vreg)
 {
 	x64_register_t reg = map_vreg(vreg);
 	assert(reg >= RAX && reg <= RDI);
 	db(ctx, 0x50 + (reg - RAX));
 }
 
-void pop(compiler_t *ctx, vreg_t vreg)
+static void pop(compiler_t *ctx, vreg_t vreg)
 {
 	x64_register_t reg = map_vreg(vreg);
 	assert(reg >= RAX && reg <= RDI);
 	db(ctx, 0x58 + (reg - RAX));
 }
 
+static vreg_t xor(compiler_t* ctx, vreg_t va, vreg_t vb)
+{
+	x64_register_t a = map_vreg(va);
+	x64_register_t b = map_vreg(vb);
+	int nb = reg_count_bits(a);
+	assert(nb == reg_count_bits(b));
+	switch(nb)
+	{
+		case 32:
+			db(ctx, 0x31);
+			db(ctx, 0xc0 + (b - EAX) * 8 + (a - EAX));
+		break;
+		case 64:
+			assert(a >= RAX && a <= RDI);
+			assert(b >= RAX && b <= RDI);
+			db(ctx, 0x48);
+			db(ctx, 0x31);
+			db(ctx, 0xc0 + (b - RAX) * 8 + (a - RAX));
+		break;
+		default:
+			perror("unhandled xor");
+		break;
+	}
+	return va;
+}
+//for local variables
+//not sure whether ARM or non-x86 support this, but for now just fix x86/x64
+
+static void load_offset_from_stack_to_register(compiler_t *ctx, vreg_t vreg, int offset, int data_size)
+{
+	x64_register_t reg = map_vreg(vreg);
+	assert(reg >= RAX && reg <= RDX);
+	switch(data_size)
+	{
+		case 4: //mov eax also clears the upper bits for x64
+		case 8:
+		db(ctx, 0x48);
+		db(ctx, 0x8b);
+		db(ctx, 0x85 + (reg - RAX) * 8);
+		dd(ctx, offset);
+		break;
+		
+		case 2:
+		//first xor, then mov [word]
+		perror("unhandled data_size");
+		break;
+		
+		default:
+		perror("unhandled data_size");
+		break;
+	}
+}
+
+static void store_offset_from_register_to_stack(compiler_t *ctx, vreg_t reg, int offset, int data_size)
+{
+	x64_register_t reg = map_vreg(vreg);
+	assert(reg >= RAX && reg <= RDX);
+	db(ctx, 0x48);
+	db(ctx, 0x89);
+	db(ctx, 0x85 + (reg - RAX) * 8);
+	dd(ctx, offset);
+}
+
 void codegen_x64(codegen_t *cg)
 {
+	cg->load_offset_from_stack_to_register = load_offset_from_stack_to_register;
+	cg->store_offset_from_register_to_stack = store_offset_from_register_to_stack;
+	
 	cg->add = add;
 	cg->sub = sub;
 	cg->mod = mod;
