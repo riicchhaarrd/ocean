@@ -1,6 +1,8 @@
 #ifndef BUFFER_UTIL_H
 #define BUFFER_UTIL_H
 
+#include "compile.h"
+
 static int instruction_position(compiler_t *ctx)
 {
     return heap_string_size(&ctx->function->bytecode);

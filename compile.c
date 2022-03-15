@@ -136,167 +136,102 @@ static int data_type_size(compiler_t *ctx, struct ast_node *n)
 	return 0;
 }
 
-typedef enum
+static void vreg_map(compiler_t *ctx, vreg_t *out, vreg_t reg)
 {
-	VD_INVALID,
-	VD_CONSTANT, //just value stored in data constant
-	VD_REGISTER, //the value is stored in a register e.g inside of VREG32 which could map to EAX
-	VD_REGISTER_ADDRESS, //the value is stored on the location that the register points to e.g EAX points to the location of where the value resides
-	//mov ebx, [eax]
-	VD_REGISTER_ADDRESS_OFFSET //same as above except the location is offset e.g mov ebx, [eax + offset]
-} value_data_t;
-
-static const char *value_data_strings[] = {"invalid","constant","register","register address","register address offset",NULL};
-
-typedef enum
-{
-	VC_LVALUE,
-	VC_RVALUE,
-	VC_TVALUE
-} value_category_t;
-
-static const char *value_category_strings[] = {"lvalue","rvalue","tvalue",NULL};
-
-typedef struct
-{
-	value_category_t category;
-	value_data_t data_type;
-	int nbits;
-	union
+	if(reg == VREG_ANY)
 	{
-		vregval_t value;
-		struct
+		reg = VREG_0;
+		for(int i = 0; i < 4; ++i)
 		{
-			vreg_t reg;
-			int offset;
-		};
-	} data;
-} value_t;
-
-typedef struct
-{
-	int ast_node_type;
-	void (*proc)(compiler_t*,ast_node_t*,value_t*);
-} value_key_proc_pair_t;
-
-static void rvalue_literal(compiler_t *ctx, ast_node_t *n, value_t *v)
-{
-	v->data_type = VD_CONSTANT;
-	switch ( n->literal_data.type )
-	{
-		case LITERAL_INTEGER:
-			setvregval(&v->data.value, n->literal_data.integer);
-			printf("literal integer: %d\n", n->literal_data.integer);
-			break;
-		case LITERAL_STRING:
-		{
-			int idx = add_indexed_data(ctx, n->literal_data.string, strlen(n->literal_data.string) + 1);
-			setvregvalindex(&v->data.value, idx);
-		} break;
-		default:
-			perror( "unhandled literal" );
-		break;
+			if(ctx->vregister_usage[VREG_0 + i] < ctx->vregister_usage[reg])
+				reg = VREG_0 + i;
+		}
 	}
-	v->nbits = v->data.value.nbits;
-	printf("literal %d bits\n", v->nbits);
+	if(ctx->vregister_usage[reg] > 0)
+	{
+		printf("push %s\n", vreg_names[reg]);
+		ctx->cg.push(ctx, reg);
+	}
+	++ctx->vregister_usage[reg];
+	*out = reg;
 }
 
-void rvalue(compiler_t *ctx, ast_node_t *n, value_t *v);
-
-static void rvalue_bin_expr(compiler_t *ctx, ast_node_t *n, value_t *v)
+static void vreg_unmap(compiler_t *ctx, vreg_t *regptr)
 {
-	value_t lhs_value, rhs_value;
-	rvalue(ctx, n->bin_expr_data.lhs, &lhs_value);
-	rvalue(ctx, n->bin_expr_data.rhs, &rhs_value);
+	vreg_t reg = *regptr;
 	
-	if(lhs_value.data_type == VD_CONSTANT && rhs_value.data_type == VD_CONSTANT)
+	if(ctx->vregister_usage[reg] > 0)
 	{
-		printf("bin expr: %d %c %d\n", getvregval(&lhs_value.data.value), n->bin_expr_data.operator, getvregval(&rhs_value.data.value));
-		v->data_type = VD_CONSTANT;
-		//pick the side with more bits
-		v->nbits = lhs_value.data.value.nbits > rhs_value.data.value.nbits ? lhs_value.data.value.nbits : rhs_value.data.value.nbits;
-		switch(n->bin_expr_data.operator)
+		printf("pop %s\n", vreg_names[reg]);
+		ctx->cg.pop(ctx, reg);
+		--ctx->vregister_usage[reg];
+	}
+}
+
+void lvalue( compiler_t* ctx, struct ast_node* n, vreg_t reg )
+{
+	switch ( n->type )
+	{
+		case AST_IDENTIFIER:
 		{
-			case '+': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  + getvregval(&rhs_value.data.value)); break;
-			case '-': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  - getvregval(&rhs_value.data.value)); break;
-			case '/': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  / getvregval(&rhs_value.data.value)); break;
-			case '*': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  * getvregval(&rhs_value.data.value)); break;
-			case '%': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  % getvregval(&rhs_value.data.value)); break;
-			case '^': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  ^ getvregval(&rhs_value.data.value)); break;
-			case '|': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  | getvregval(&rhs_value.data.value)); break;
-			case '&': setvregval(&v->data.value, getvregval(&lhs_value.data.value)
-				  & getvregval(&rhs_value.data.value)); break;
+			const char* variable_name = n->identifier_data.name;
+			variable_t* var = hash_map_find( ctx->function->variables, variable_name );
+			assert( var );
+			struct ast_node *variable_type = var->data_type_node;
+			int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
+
+			printf("mov %s, %s\n", vreg_names[reg], vreg_names[VREG_BP]);
+			ctx->cg.mov(ctx, reg, VREG_BP);
+			printf("sub %s, %d\n", vreg_names[reg], offset);
+			ctx->cg.sub_regn_imm32(ctx, reg, offset);
+		} break;
+	}
+}
+
+void rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
+{
+	switch(n->type)
+	{
+		case AST_LITERAL:
+			switch ( n->literal_data.type )
+			{
+			case LITERAL_INTEGER:
+				printf("mov %s, %d\n", vreg_names[reg], n->literal_data.integer);
+				ctx->cg.mov_r_imm32(ctx, reg, n->literal_data.integer, NULL);
+				break;
+			case LITERAL_STRING:
+			{
+				printf("mov %s, %s\n", vreg_names[reg], n->literal_data.string);
+				ctx->cg.mov_r_string(ctx, reg, n->literal_data.string);
+			} break;
 			default:
-				perror("unsupported\n");
-			break;
-		}
-	} else
-	{
-		//TODO: FIXME
-	}
-}
-
-static value_key_proc_pair_t rvalue_key_proc_pairs[] = {
-	{AST_LITERAL, rvalue_literal},
-	{AST_BIN_EXPR, rvalue_bin_expr},
-	//{AST_IDENTIFIER, rvalue_identifier},
-	{AST_NONE, NULL}
-};
-
-static void lvalue_identifier(compiler_t *ctx, ast_node_t *n, value_t *v)
-{
-	const char* variable_name = n->identifier_data.name;
-	variable_t* var = hash_map_find( ctx->function->variables, variable_name );
-	assert( var );
-	struct ast_node *variable_type = var->data_type_node;
-	//int offset = var->is_param ? 4 + var->offset : 0xff - var->offset + 1;
-	v->nbits = data_type_size(ctx, variable_type);
-	printf("%s nbits=%d\n", variable_name, v->nbits);
-}
-
-static value_key_proc_pair_t lvalue_key_proc_pairs[] = {
-	{AST_IDENTIFIER, lvalue_identifier},
-	{AST_NONE, NULL}
-};
-
-void rvalue(compiler_t *ctx, ast_node_t *n, value_t *v)
-{
-	v->category = VC_RVALUE;
-	v->data_type = VD_INVALID;
-	v->nbits = 0;
-	for(int i = 0; rvalue_key_proc_pairs[i].proc; ++i)
-	{
-		if(rvalue_key_proc_pairs[i].ast_node_type == n->type)
+				perror( "unhandled literal" );
+				break;
+			}
+		break;
+		
+		case AST_BIN_EXPR:
 		{
-			return rvalue_key_proc_pairs[i].proc(ctx, n, v);
-		}
-	}
-}
+			struct ast_node *lhs = n->bin_expr_data.lhs;
+			struct ast_node *rhs = n->bin_expr_data.rhs;
+			
+			vreg_t rhs_reg;
+			vreg_map(ctx, &rhs_reg, VREG_ANY);
+			rvalue(ctx, lhs, reg);
+			rvalue(ctx, rhs, rhs_reg);
 
-static void lvalue(compiler_t *ctx, ast_node_t *n, value_t *v)
-{
-	v->category = VC_LVALUE;
-	v->data_type = VD_INVALID;
-	v->nbits = 0;
-	for(int i = 0; lvalue_key_proc_pairs[i].proc; ++i)
-	{
-		if(lvalue_key_proc_pairs[i].ast_node_type == n->type)
-		{
-			return lvalue_key_proc_pairs[i].proc(ctx, n, v);
-		}
+			switch(n->bin_expr_data.operator)
+			{
+				case '+':
+				{
+					vreg_t c = ctx->cg.add(ctx, reg, rhs_reg);
+					printf("add %s, %s\n", vreg_names[reg], vreg_names[rhs_reg]);
+					//ctx->cg.mov(ctx, reg, c);
+				} break;
+			}
+			vreg_unmap(ctx, &rhs_reg);
+		} break;
 	}
-}
-
-static void print_value(value_t *v)
-{
-	printf("value type:%s,category:%s,nbits:%d\n", value_data_strings[v->data_type], value_category_strings[v->category], v->nbits);
 }
 
 #define compiler_assert(ctx, expr, ...) \
@@ -317,40 +252,10 @@ static void compiler_assert_r(compiler_t *ctx, int expr, const char *expr_str, c
 	longjmp(ctx->jmp, 1);
 }
 
-static void vreg_map(compiler_t *ctx, vreg_t *out, vreg_t reg)
-{
-	if(reg == VREG_ANY)
-	{
-		reg = VREG_0;
-		for(int i = 0; i < 4; ++i)
-		{
-			if(ctx->vregister_usage[VREG_0 + i] <= ctx->vregister_usage[reg])
-				reg = VREG_0 + i;
-		}
-	}
-	if(ctx->vregister_usage[reg] > 0)
-	{
-		ctx->cg.push(ctx, reg);
-	}
-	++ctx->vregister_usage[reg];
-	*out = reg;
-}
-
-static void vreg_unmap(compiler_t *ctx, vreg_t *regptr)
-{
-	vreg_t reg = *regptr;
-	
-	if(ctx->vregister_usage[reg] > 0)
-	{
-		ctx->cg.pop(ctx, reg);
-		--ctx->vregister_usage[reg];
-	}
-}
-
 vreg_t process(compiler_t* ctx, ast_node_t* n)
 {
 	codegen_t *cg = &ctx->cg;
-	printf("n->type=%s\n",AST_NODE_TYPE_to_string(n->type));
+	//printf("n->type=%s\n",AST_NODE_TYPE_to_string(n->type));
 	switch (n->type)
     {
 		case AST_PROGRAM:			
@@ -358,36 +263,17 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				process(ctx, (*it));
 			} );
 		break;
-        case AST_BIN_EXPR:
-        {
-			value_t lhs_value, rhs_value;
-			rvalue(ctx, n->bin_expr_data.lhs, &lhs_value);
-			rvalue(ctx, n->bin_expr_data.rhs, &rhs_value);
-			
-			print_value(&lhs_value);
-			print_value(&rhs_value);
-			
-			vreg_t a, b, c;
-			vreg_map(ctx, &a, VREG_ANY);
-			vreg_map(ctx, &b, VREG_ANY);
-			
-			cg->mov_r_imm32(ctx, a, getvregval(&lhs_value.data.value), NULL);
-			cg->mov_r_imm32(ctx, b, getvregval(&rhs_value.data.value), NULL);
-			c = cg->add(ctx, a, b);
-			//do something with result in vreg c
-			vreg_unmap(ctx, &a);
-			vreg_unmap(ctx, &b);
-			return c;
-        } break;
 		
 		case AST_ASSIGNMENT_EXPR:
 		{
-			value_t lhs_value, rhs_value;
-			rvalue(ctx, n->assignment_expr_data.rhs, &rhs_value);
-			lvalue(ctx, n->assignment_expr_data.lhs, &lhs_value);
+			
+			vreg_t a, b;
+			vreg_map(ctx, &a, VREG_ANY);
+			vreg_map(ctx, &b, VREG_ANY);
+			rvalue(ctx, n->assignment_expr_data.rhs, a);
+			lvalue(ctx, n->assignment_expr_data.lhs, b);
 			
 			//TODO: FIXME
-			printf("setting value to %d\n", getvregval(&rhs_value.data.value));
 		} break;
 		
 		case AST_BLOCK_STMT:
@@ -432,7 +318,7 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				
 				printf("numbytes=%d\n",numbits/8);
 				
-				//process(ctx, n->func_decl_data.body);
+				process(ctx, n->func_decl_data.body);
 				ctx->function = oldfunc;
 			} else
 			{
@@ -478,6 +364,14 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
     }
 }
 
+static void print_hex(u8 *buf, size_t n)
+{
+	for (int i = 0; i < n; ++i)
+	{
+		printf("%02X%s", buf[i] & 0xff, i + 1 == n ? "" : " ");
+	}
+}
+
 int codegen(compiler_t* ctx, ast_node_t *head)
 {
     if(setjmp(ctx->jmp))
@@ -491,6 +385,11 @@ int codegen(compiler_t* ctx, ast_node_t *head)
 	{
 		function_t *fn = entry->data;
 		printf("%s\n", fn->name);
+		if(!strcmp(fn->name, "main"))
+		{
+			printf("bytecode=%d\n",heap_string_size(&fn->bytecode));
+			print_hex(fn->bytecode, heap_string_size(&fn->bytecode));
+		}
 		printf("--------------------------\n");
 		
 		hash_map_foreach_entry(fn->variables, ventry,

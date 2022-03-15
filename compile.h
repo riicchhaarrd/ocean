@@ -54,6 +54,38 @@ enum vreg_s
 };
 typedef enum vreg_s vreg_t;
 
+static const char *vreg_names[] = {
+	"vreg8_any",
+	"vreg8_0",
+	"vreg8_1",
+	"vreg8_2",
+	"vreg8_3",
+	"vreg16_any",
+	"vreg16_0",
+	"vreg16_1",
+	"vreg16_2",
+	"vreg16_3",
+	"vreg32_any",
+	"vreg32_0",
+	"vreg32_1",
+	"vreg32_2",
+	"vreg32_3",
+	"vreg64_any",
+	"vreg64_0",
+	"vreg64_1",
+	"vreg64_2",
+	"vreg64_3",
+	"vreg_any",
+	"vreg_0",
+	"vreg_1",
+	"vreg_2",
+	"vreg_3",
+	"vreg_sp",
+	"vreg_bp",
+	"vreg_ip",
+	NULL
+};
+
 typedef struct
 {
 	int nbits;
@@ -237,8 +269,8 @@ struct compiler_s
 
     void* find_import_fn_userptr;
     find_import_fn_t find_import_fn;
-	int (*rvalue)(struct compiler_s *ctx, reg_t reg, struct ast_node *n);
-	int (*lvalue)(struct compiler_s *ctx, reg_t reg, struct ast_node *n);
+	int (*rvalue)(struct compiler_s *ctx, vreg_t reg, struct ast_node *n);
+	int (*lvalue)(struct compiler_s *ctx, vreg_t reg, struct ast_node *n);
 	
 	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
 	
