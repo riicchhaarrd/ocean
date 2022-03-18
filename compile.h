@@ -271,13 +271,8 @@ struct compiler_s
 
     function_t *function;
 
-    intptr_t registers[8];
 	indexed_data_t indexed_data[MAX_INDEXED_DATA];
 	int numindexeddata;
-
-	//TODO: keep track of how many times register is being used to prevent clobbering and unneccessary push/pops
-	//TODO: FIXME implement better way to do this with register allocation e.g buckets/graph coloring
-	int vregister_usage[VREG_MAX];
 	
     struct scope *scope[COMPILER_MAX_SCOPES]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;

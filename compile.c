@@ -46,14 +46,14 @@ void compiler_init(compiler_t *c, arena_t *allocator, int numbits)
 	c->fts.doublesize = 64;
 	c->fts.pointersize = 64;
 	
-	codegen_x64(&c->cg);
-	
 	c->numbits = numbits;
 	c->allocator = allocator;
 	c->functions = hash_map_create_with_custom_allocator(function_t, c->allocator, arena_alloc);
 	
 	//mainly just holder for global variables and maybe code without function
 	c->function = compiler_alloc_function(c, "_global_variables");
+	
+	codegen_x64(&c->cg);
 }
 
 static int fundamental_type_size(compiler_t *ctx, int type)
@@ -136,39 +136,7 @@ static int data_type_size(compiler_t *ctx, struct ast_node *n)
 	return 0;
 }
 
-static void vreg_map(compiler_t *ctx, vreg_t *out, vreg_t reg)
-{
-	if(reg == VREG_ANY)
-	{
-		reg = VREG_0;
-		for(int i = 0; i < 4; ++i)
-		{
-			if(ctx->vregister_usage[VREG_0 + i] < ctx->vregister_usage[reg])
-				reg = VREG_0 + i;
-		}
-	}
-	if(ctx->vregister_usage[reg] > 0)
-	{
-		printf("push %s ; %d\n", vreg_names[reg], ctx->vregister_usage[reg]);
-		ctx->cg.push(ctx, reg);
-	}
-	++ctx->vregister_usage[reg];
-	*out = reg;
-}
-
-static void vreg_unmap(compiler_t *ctx, vreg_t *regptr)
-{
-	vreg_t reg = *regptr;
-	
-	if(ctx->vregister_usage[reg] > 1)
-	{
-		printf("pop %s ; %d\n", vreg_names[reg], ctx->vregister_usage[reg] - 1);
-		ctx->cg.pop(ctx, reg);
-		--ctx->vregister_usage[reg];
-	}
-}
-
-void lvalue( compiler_t* ctx, struct ast_node* n, vreg_t reg )
+void lvalue( compiler_t* ctx, struct ast_node* n, reg_t reg, lvalue_t *lv )
 {
 	switch ( n->type )
 	{
@@ -176,26 +144,41 @@ void lvalue( compiler_t* ctx, struct ast_node* n, vreg_t reg )
 		{
 			variable_t* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
 			assert( var );
-			ctx->cg.load_offset_from_stack_to_register(ctx, reg, var->offset, data_type_size(ctx, var->data_type_node) / 8);
+			
+			lv->data_type = var->data_type_node;
+			lv->offset = var->offset;
+			lv->size = data_type_size(ctx, lv->data_type) / 8;
+			
+			ctx->cg.load_offset_from_stack_to_register(ctx, reg, lv->offset, lv->size);
 		} break;
 	}
 }
 
-int rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
+static void vreg_map(compiler_t *ctx, reg_t *reg, vreg_t vreg)
 {
+	*reg = ctx->cg.map_register(ctx, vreg);
+}
+
+static void vreg_unmap(compiler_t *ctx, reg_t *reg)
+{
+	ctx->cg.unmap_register(ctx, *reg);
+}
+
+int rvalue(compiler_t *ctx, ast_node_t *n, reg_t reg)
+{
+	codegen_t *cg = &ctx->cg;
+	
 	switch(n->type)
 	{
 		case AST_LITERAL:
 			switch ( n->literal_data.type )
 			{
 			case LITERAL_INTEGER:
-				printf("mov %s, %d\n", vreg_names[reg], n->literal_data.integer);
-				ctx->cg.mov_r_imm32(ctx, reg, n->literal_data.integer, NULL);
+				cg->mov_r_imm32(ctx, reg, n->literal_data.integer, NULL);
 				break;
 			case LITERAL_STRING:
 			{
-				printf("mov %s, %s\n", vreg_names[reg], n->literal_data.string);
-				ctx->cg.mov_r_string(ctx, reg, n->literal_data.string);
+				cg->mov_r_string(ctx, reg, n->literal_data.string);
 			} break;
 			default:
 				perror( "unhandled literal" );
@@ -208,17 +191,16 @@ int rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
 			struct ast_node *lhs = n->bin_expr_data.lhs;
 			struct ast_node *rhs = n->bin_expr_data.rhs;
 			
-			vreg_t rhs_reg;
-			vreg_map(ctx, &rhs_reg, VREG_ANY);
 			rvalue(ctx, lhs, reg);
+			reg_t rhs_reg;
+			vreg_map(ctx, &rhs_reg, VREG_ANY);
 			rvalue(ctx, rhs, rhs_reg);
 
 			switch(n->bin_expr_data.operator)
 			{
 				case '+':
 				{
-					vreg_t c = ctx->cg.add(ctx, reg, rhs_reg);
-					printf("add %s, %s\n", vreg_names[reg], vreg_names[rhs_reg]);
+					reg_t c = cg->add(ctx, reg, rhs_reg);
 					//ctx->cg.mov(ctx, reg, c);
 				} break;
 			}
@@ -227,14 +209,16 @@ int rvalue(compiler_t *ctx, ast_node_t *n, vreg_t reg)
 
 		case AST_ASSIGNMENT_EXPR:
 		{
-			
-			vreg_t a, b;
+			reg_t a, b;
 			vreg_map(ctx, &a, VREG_ANY);
-			vreg_map(ctx, &b, VREG_ANY);
 			rvalue(ctx, n->assignment_expr_data.rhs, a);
-			lvalue(ctx, n->assignment_expr_data.lhs, b);
-			vreg_unmap(ctx, &a);
+			vreg_map(ctx, &b, VREG_ANY);
+			lvalue_t lv;
+			lvalue(ctx, n->assignment_expr_data.lhs, b, &lv);
+			cg->store_offset_from_register_to_stack(ctx, b, lv.offset, lv.size);
 			vreg_unmap(ctx, &b);
+			vreg_unmap(ctx, &a);
+			ctx->cg.load_offset_from_stack_to_register(ctx, reg, lv.offset, lv.size); //TODO: fix for global variables
 			
 			//TODO: FIXME
 		} break;
@@ -269,7 +253,7 @@ static struct ast_node *allocate_variable(compiler_t *ctx, struct ast_node *n, c
 	hash_map_insert( ctx->function->variables, varname, tv );
 }
 
-vreg_t process(compiler_t* ctx, ast_node_t* n)
+reg_t process(compiler_t* ctx, ast_node_t* n)
 {
 	codegen_t *cg = &ctx->cg;
 	//printf("n->type=%s\n",AST_NODE_TYPE_to_string(n->type));
@@ -315,7 +299,7 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 
 				ast_node_t* variable_declarations[32];
 				size_t num_variable_declarations = ast_tree_nodes_by_type(&traverse_ctx, n->func_decl_data.body, AST_VARIABLE_DECL, &variable_declarations, COUNT_OF(variable_declarations));
-				printf("vars %d\n", num_variable_declarations);
+				//printf("vars %d\n", num_variable_declarations);
 				int numbits = 0;
 				for (size_t i = 0; i < num_variable_declarations; ++i)
 				{
@@ -324,12 +308,12 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 					compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
 					int variable_size = data_type_size(ctx, variable_declarations[i]->variable_decl_data.data_type);
 					allocate_variable(ctx, variable_declarations[i], variable_name, numbits / 8, variable_size / 8);
-					printf("var name = %s %s\n", AST_NODE_TYPE_to_string(variable_declarations[i]->type), variable_name);
+					//printf("var name = %s %s\n", AST_NODE_TYPE_to_string(variable_declarations[i]->type), variable_name);
 					
 					numbits += variable_size;
 				}
 				
-				printf("numbytes=%d\n",numbits/8);
+				//printf("numbytes=%d\n",numbits/8);
 				
 				process(ctx, n->func_decl_data.body);
 				ctx->function = oldfunc;
@@ -352,10 +336,10 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				process(ctx, &c);
 			}
 		} break;
-		
 		default:
 		{
-			vreg_t reg;
+		#if 1
+			reg_t reg;
 			vreg_map(ctx, &reg, VREG_ANY);
 			if(rvalue(ctx, n, reg))
 			{
@@ -363,7 +347,9 @@ vreg_t process(compiler_t* ctx, ast_node_t* n)
 				exit( -1 );
 			}
 			vreg_unmap(ctx, &reg);
-			//printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
+		#else
+			printf("unhandled type %s | %s:%d\n", AST_NODE_TYPE_to_string(n->type), __FILE__, __LINE__);
+		#endif
 		} break;
     }
 }
@@ -384,21 +370,21 @@ int codegen(compiler_t* ctx, ast_node_t *head)
     }
 	process(ctx, head);
 	
-	printf("functions:\n");
+	//printf("functions:\n");
 	hash_map_foreach_entry(ctx->functions, entry,
 	{
 		function_t *fn = entry->data;
-		printf("%s\n", fn->name);
+		//printf("%s\n", fn->name);
 		if(!strcmp(fn->name, "main"))
 		{
-			printf("bytecode=%d\n",heap_string_size(&fn->bytecode));
+			//printf("bytecode=%d\n",heap_string_size(&fn->bytecode));
 			print_hex(fn->bytecode, heap_string_size(&fn->bytecode));
 		}
-		printf("--------------------------\n");
+		//printf("--------------------------\n");
 		
 		hash_map_foreach_entry(fn->variables, ventry,
 		{
-			printf("\t%s\n", ventry->key);
+			//printf("\t%s\n", ventry->key);
 		});
 	});
 	

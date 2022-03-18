@@ -121,7 +121,11 @@ int main(int argc, char** argv)
     while (1)
     {
         //printf(">");
-		const char *code = "int main(){ int test = 5; test += 10; return 0; }";
+		//TODO: find out which variables are standalone and don't depend on other variables and reorder the flow of the program to make better use of registers?
+		//keep track of registers e.g RAX and see what it's used for and check whether it has served it's purpose to make it available again?
+		//by scanning forward? evaluating then seeing where it get's popped into temp instruction buffer
+		//e.g for syscall eax then after syscall clear it
+		const char *code = "int main(){ int g = 3; int x = 9; int y = 5; int z = 6; int l = 23; int test = 5 + 9; test += 10; return 0; }";
         //fgets(code, sizeof(code), stdin);
 		if(code[0] == 'q')
 			break;
@@ -156,7 +160,7 @@ int main(int argc, char** argv)
 			break;
 		break;
     }
-	printf("%d KB/%d KB bytes used\n", arena->used/1000, arena->reserved/1000);
+	//printf("%d KB/%d KB bytes used\n", arena->used/1000, arena->reserved/1000);
 	arena_destroy(&arena);
 	return 0;
 }
