@@ -87,8 +87,9 @@ struct codegen_s
 	//----------------------------------------
 	int (*add_data)(compiler_t* ctx, void* data, u32 data_size);
 	
-	void (*load_offset_from_stack_to_register)(compiler_t *, reg_t reg, int offset, int data_size);
-	void (*store_offset_from_register_to_stack)(compiler_t *, reg_t reg, int offset, int data_size);
+	void (*load_value_offset_from_stack_to_register)(compiler_t *, reg_t reg, int offset, int data_size);
+	void (*load_lvalue_address_to_register)(compiler_t*,reg_t,lvalue_t*);
+	void (*store_value_offset_from_register_to_stack)(compiler_t *, reg_t reg, int offset, int data_size);
 };
 
 typedef struct codegen_s codegen_t;

@@ -149,7 +149,8 @@ void lvalue( compiler_t* ctx, struct ast_node* n, reg_t reg, lvalue_t *lv )
 			lv->offset = var->offset;
 			lv->size = data_type_size(ctx, lv->data_type) / 8;
 			
-			ctx->cg.load_offset_from_stack_to_register(ctx, reg, lv->offset, lv->size);
+			ctx->cg.load_lvalue_address_to_register(ctx, reg, lv);
+			
 		} break;
 	}
 }
@@ -209,18 +210,13 @@ int rvalue(compiler_t *ctx, ast_node_t *n, reg_t reg)
 
 		case AST_ASSIGNMENT_EXPR:
 		{
-			reg_t a, b;
-			vreg_map(ctx, &a, VREG_ANY);
-			rvalue(ctx, n->assignment_expr_data.rhs, a);
-			vreg_map(ctx, &b, VREG_ANY);
+			reg_t lhs;
+			vreg_map(ctx, &lhs, VREG_ANY);
 			lvalue_t lv;
-			lvalue(ctx, n->assignment_expr_data.lhs, b, &lv);
-			cg->store_offset_from_register_to_stack(ctx, b, lv.offset, lv.size);
-			vreg_unmap(ctx, &b);
-			vreg_unmap(ctx, &a);
-			ctx->cg.load_offset_from_stack_to_register(ctx, reg, lv.offset, lv.size); //TODO: fix for global variables
-			
-			//TODO: FIXME
+			lvalue(ctx, n->assignment_expr_data.lhs, lhs, &lv);
+			rvalue(ctx, n->assignment_expr_data.rhs, reg);
+			cg->store_offset_from_register_to_stack(ctx, reg, lv.offset, lv.size);
+			vreg_unmap(ctx, &lhs);
 		} break;
 
 		default:

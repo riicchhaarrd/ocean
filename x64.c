@@ -1,5 +1,6 @@
 //TODO: implement all opcodes we'll be using so we can keep track of the registers and their values
 //TODO: replace our "real" registers with "virtual" registers
+//rasm2 -b 64 -d "$(gcc -w -g test.c compile.c ast.c lex.c parse.c x64.c && ./a.out)"
 
 #include "std.h"
 #include "token.h"
@@ -335,78 +336,66 @@ static vreg_t xor(compiler_t* ctx, reg_t a, reg_t b)
 //for local variables
 //not sure whether ARM or non-x86 support this, but for now just fix x86/x64
 
-static void load_offset_from_stack_to_register(compiler_t *ctx, reg_t reg, int offset, int data_size)
+//movsx <dst>, [byte,word,dword,qword] [src + lv->offset]
+
+static void load_lvalue_from_register_address_plus_offset(compiler_t *ctx, reg_t dst, reg_t src, lvalue_t *lv)
 {
-	//assert(reg >= RAX && reg <= RDI);
+	//TODO: first byte replace with 0x49
+	//but just redo it all and just use bitflags
+	//https://staffwww.fullcoll.edu/aclifton/cs241/lecture-instruction-format.html
 	switch(data_size)
 	{
 		case 1:
-		if(reg >= RAX && reg <= RDI)
+		if(dst >= RAX && dst <= RDI)
 		{
 			db(ctx, 0x48);
 			db(ctx, 0x0f);
 			db(ctx, 0xbe);
-			db(ctx, 0x85 + (reg - RAX) * 8);
-		} else if(reg >= R8 && reg <= R15)
+			db(ctx, 0x85 + (dst - RAX) * 8);
+		} else if(dst >= R8 && dst <= R15)
 		{
 			db(ctx, 0x48);
 			db(ctx, 0x0f);
 			db(ctx, 0xbe);
-			db(ctx, 0x85 + (reg - R8) * 8);
+			db(ctx, 0x85 + (dst - R8) * 8);
 		} else {
 			perror("unhandled data_size");
 		}
-		dd(ctx, offset);
+		dd(ctx, lv->offset);
 		break;
 		
 		case 4:
-		if(reg >= RAX && reg <= RDI)
+		if(dst >= RAX && dst <= RDI)
 		{
 			db(ctx, 0x48);
 			db(ctx, 0x63);
-			db(ctx, 0x85 + (reg - RAX) * 8);
-		} else if(reg >= R8 && reg <= R15)
+			db(ctx, 0x85 + (dst - RAX) * 8);
+		} else if(dst >= R8 && dst <= R15)
 		{
 			db(ctx, 0x4c);
 			db(ctx, 0x63);
-			db(ctx, 0x85 + (reg - R8) * 8);
+			db(ctx, 0x85 + (dst - R8) * 8);
 		} else {
 			perror("unhandled data_size");
 		}
-		dd(ctx, offset);
-		#if 0 //probably should use movsx/movzx here atm for now, also we need data_type aswell
-		if(reg >= RAX && reg <= RDI)
-		{
-			db(ctx, 0x67);
-			db(ctx, 0x48);
-			db(ctx, 0x8b);
-			db(ctx, 0x85 + (reg - RAX) * 8);
-		} else if(reg >= R8 && reg <= R15)
-		{
-			db(ctx, 0x67);
-			db(ctx, 0x4c);
-			db(ctx, 0x8b);
-			db(ctx, 0x85 + (reg - RAX) * 8);
-		} else
-			perror("unhandled data_size");
-		#endif
+		dd(ctx, lv->offset);
 		break;
 		
 		case 8:
-		if(reg >= RAX && reg <= RDI)
+		if(dst >= RAX && dst <= RDI)
 		{
 			db(ctx, 0x48);
 			db(ctx, 0x8b);
-			db(ctx, 0x85 + (reg - RAX) * 8);
+			db(ctx, 0x85 + (dst - RAX) * 8);
 		}
-		else if(reg >= R8 && reg <= R15)
+		else if(dst >= R8 && dst <= R15)
 		{
 			db(ctx, 0x4c);
 			db(ctx, 0x8b);
-			db(ctx, 0x85 + (reg - R8) * 8);
+			db(ctx, 0x85 + (dst - R8) * 8);
 		} else
 			perror("unhandled data_size");
-		dd(ctx, offset);
+		dd(ctx, lv->offset);
 		break;
 		
 		case 2:
@@ -420,7 +409,25 @@ static void load_offset_from_stack_to_register(compiler_t *ctx, reg_t reg, int o
 	}
 }
 
-static void store_offset_from_register_to_stack(compiler_t *ctx, reg_t reg, int offset, int data_size)
+//e.g lea <reg>, [rbp + offset]
+static void load_lvalue_address_to_register(compiler_t *ctx, reg_t dest, lvalue_t *src)
+{
+	//TODO: check offset type
+	if(reg >= RAX && reg <= RDI)
+	{
+		db(ctx, 0x48);
+		db(ctx, 0x8d);
+		db(ctx, 0x85 + (dest - RAX));
+	} else if(reg >= R8 && reg <= R15)
+	{
+		db(ctx, 0x4c);
+		db(ctx, 0x8d);
+		db(ctx, 0x85 + (dest - R8));
+	}
+	dd(ctx, src->offset);
+}
+
+static void store_value_offset_from_register_to_stack(compiler_t *ctx, reg_t reg, int offset, int data_size)
 {
 	if(reg >= RAX && reg <= RDI)
 	{
@@ -520,8 +527,8 @@ void codegen_x64(compiler_t *ctx)
 	cg->unmap_register = unmap_reg;
 	cg->register_name = register_name;
 	
-	cg->load_offset_from_stack_to_register = load_offset_from_stack_to_register;
-	cg->store_offset_from_register_to_stack = store_offset_from_register_to_stack;
+	cg->load_value_offset_from_stack_to_register = load_value_offset_from_stack_to_register;
+	cg->store_value_offset_from_register_to_stack = store_value_offset_from_register_to_stack;
 	
 	cg->add = add;
 	cg->sub = sub;
