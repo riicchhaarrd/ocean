@@ -1,9 +1,3 @@
-#include "std.h"
-#include "token.h"
-#include "ast.h"
-#include "types.h"
-#include "parse.h"
-
 #define HEAP_STRING_IMPL
 #include "rhd/heap_string.h"
 
@@ -15,7 +9,16 @@
 
 #include "rhd/hash_string.h"
 
-int generate_ast(struct token *tokens, int num_tokens, struct linked_list **ll/*for freeing the whole tree*/, struct ast_node **root, bool);
+#include "arena.h"
+#include "std.h"
+#include "token.h"
+#include "ast.h"
+#include "types.h"
+#include "parse.h"
+#include "compile.h"
+
+int generate_ast(struct token* tokens, int num_tokens, struct linked_list** ll /*for freeing the whole tree*/,
+				 struct ast_node** root, bool);
 int main(int argc, char **argv)
 {
 	assert(argc > 1);
@@ -33,37 +36,60 @@ int main(int argc, char **argv)
     }
 
 	//Step 2. Tokenize the preprocessed result
-	struct token *tokens = NULL;
-    int num_tokens = 0;
+	struct token* tokens = NULL;
+	int num_tokens = 0;
     
 	// printf("data = %s\n", data);
 	parse( data , &tokens, &num_tokens, LEX_FL_NONE);
-	heap_string_free( &data ); //We can now free the data because it's no longer needed, our tokens are contained in tokens.
-    
-	/*
+
+	
 	//Optionally print out the tokens.
-    //printf("num_tokens = %d\n", num_tokens);
-    char str[256]={0};
-    for(int i = 0; i < num_tokens; ++i)
-    {
-        struct token *tk = &tokens[i];
-        token_to_string(tk, str, sizeof(str));
-		//printf("token %s\n", str);
-    }
-	*/
+	/* char str[256]={0}; */
+	/* for(int i = 0; i < num_tokens; ++i) */
+	/* { */
+	/* 	struct token *tk = &tokens[i]; */
+	/* 	token_stringify(data, heap_string_size(&data), tk, str, sizeof(str)); */
+	/* 	printf("%s", str); */
+	/* } */
 
-    struct linked_list *ast_list = NULL;
-    struct ast_node *root = NULL;
+	arena_t* arena;
+	arena_create(&arena, "ast", 1000 * 1000 * 128); // 128MB
+	
+	ast_context_t ast_context;
+	ast_init_context(&ast_context, arena);
 
-	//Step 3. Generate AST from tokens.
-	int ast = generate_ast(tokens, num_tokens, &ast_list, &root, 1);
-	if(ast)
+	if(ast_process_tokens(&ast_context, tokens, num_tokens))
 	{
-		printf("Failed to generate AST\n");
-		return 0;
+		print_ast(ast_context.program_node, 0);
+		printf("done processing tokens\n");
 	}
-	root = NULL;
-	linked_list_destroy(&ast_list);
-    free(tokens);
+	// gcc -w -g main-ast.c lex.c ast.c pre.c parse.c && gdb -ex run --args ./a.out examples/syscall.c
+
+	/* struct linked_list *ast_list = NULL; */
+    /* struct ast_node *root = NULL; */
+
+	/* //Step 3. Generate AST from tokens. */
+	/* int ast = generate_ast(tokens, num_tokens, &ast_list, &root, 1); */
+	/* if(ast) */
+	/* { */
+	/* 	printf("Failed to generate AST\n"); */
+	/* 	return 0; */
+	/* } */
+	/* root = NULL; */
+	/* linked_list_destroy(&ast_list); */
+
+	compiler_t compile_ctx;
+	compiler_init(&compile_ctx, arena, 64, COMPILER_FLAGS_NONE);
+	int compile(compiler_t * ctx, ast_node_t * head);
+	compile(&compile_ctx, ast_context.program_node);
+
+	void gen(vinstr_t * instructions, size_t n);
+	function_t* lookup_function_by_name(compiler_t* ctx, const char* name);
+	function_t *fn = lookup_function_by_name(&compile_ctx, "main");
+	assert(fn);
+	gen(fn->instructions, fn->instruction_index);
+	free(tokens);
+	heap_string_free(&data);
+	arena_destroy(&arena);
 	return 0;
 }

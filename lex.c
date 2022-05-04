@@ -4,6 +4,7 @@
 #include "token.h"
 #include "rhd/heap_string.h"
 #include "rhd/linked_list.h"
+#include "types.h"
 
 struct lexer
 {
@@ -346,7 +347,7 @@ retry:
 			return 1;
 		}
 		assert(character_constant > 0 && character_constant <= 0xff);
-        tk->integer = character_constant; //TODO: add support for \0 \hex and other stuff
+        tk->integer.value = character_constant; //TODO: add support for \0 \hex and other stuff
         if(next_check(lex, '\''))
         {
             printf("expecting closing ' for character constant\n");
@@ -397,9 +398,11 @@ retry:
 	default:
         if(ch == '0' && !next_check(lex, 'x'))
 		{
-            tk->type=TK_INTEGER;
-            tk->integer = 0;
-            while(1)
+			tk->type = TK_INTEGER;
+			tk->integer.is_unsigned = false;
+			tk->integer.suffix = INTEGER_SUFFIX_NONE;
+			tk->integer.value = 0;
+			while(1)
 			{
                 int nch = next(lex);
                 if(nch == -1)
@@ -410,7 +413,7 @@ retry:
 					--lex->pos;
 					break;
 				}
-                tk->integer = (tk->integer << 4) | (bv & 0xf);
+                tk->integer.value = (tk->integer.value << 4) | (bv & 0xf);
 			}
 		} else if(ch >= '0' && ch <= '9')
 	    {
@@ -421,11 +424,12 @@ retry:
             if(is_int)
 			{
 				tk->type = TK_INTEGER;
-				tk->integer = atoi( s );
+				tk->integer.value = atoll( s );
 			} else
 			{
+				tk->scalar.suffix = SCALAR_SUFFIX_NONE;
 				tk->type = TK_FLOAT;
-				tk->flt = atof( s );
+				tk->scalar.value = atof( s );
 			}
 			heap_string_free( &s );
 	    } else if(match_test_ident(ch))
