@@ -7,99 +7,21 @@
 #include "rhd/hash_string.h"
 #include "rhd/hash_map.h"
 #include "arena.h"
-#include "codegen.h"
-
+#include "instruction.h"
+#include "register.h"
+#include "virtual_opcodes.h"
 #include <setjmp.h>
 
-//TODO: implement later
-enum vreg_s
-{
-	VREG8_ANY,
-	VREG8_0,
-	VREG8_1,
-	VREG8_2,
-	VREG8_3,
-	
-	VREG16_ANY,
-	VREG16_0,
-	VREG16_1,
-	VREG16_2,
-	VREG16_3,
-	
-	VREG32_ANY,
-	VREG32_0,
-	VREG32_1,
-	VREG32_2,
-	VREG32_3,
-	
-	VREG64_ANY,
-	VREG64_0,
-	VREG64_1,
-	VREG64_2,
-	VREG64_3,
-	
-	//use VREG_ANY unless you specifically need to move things to another register e.g mov VREG_0, VREG_1
-	//or when you need atleast N amount of bits use any of the 8/16/32/64 VREG values
-	
-	VREG_ANY,
-	VREG_0,
-	VREG_1,
-	VREG_2,
-	VREG_3,
-	
+enum
+{	
 	VREG_SP,
 	VREG_BP,
 	VREG_IP,
+	VREG_RETURN_VALUE,
 	VREG_MAX
 };
-typedef enum vreg_s vreg_t;
+typedef int vreg_t;
 typedef int reg_t;
-
-static int vreg_count_bits(vreg_t reg)
-{
-	if(reg <= VREG8_3)
-		return 8;
-	if(reg <= VREG16_3)
-		return 16;
-	if(reg <= VREG32_3)
-		return 32;
-	if(reg <= VREG64_3)
-		return 64;
-	//any other vreg amount of bits will be determined by the compiler target
-	return -1;
-}
-
-static const char *vreg_names[] = {
-	"vreg8_any",
-	"vreg8_0",
-	"vreg8_1",
-	"vreg8_2",
-	"vreg8_3",
-	"vreg16_any",
-	"vreg16_0",
-	"vreg16_1",
-	"vreg16_2",
-	"vreg16_3",
-	"vreg32_any",
-	"vreg32_0",
-	"vreg32_1",
-	"vreg32_2",
-	"vreg32_3",
-	"vreg64_any",
-	"vreg64_0",
-	"vreg64_1",
-	"vreg64_2",
-	"vreg64_3",
-	"vreg_any",
-	"vreg_0",
-	"vreg_1",
-	"vreg_2",
-	"vreg_3",
-	"vreg_sp",
-	"vreg_bp",
-	"vreg_ip",
-	NULL
-};
 
 typedef struct
 {
@@ -147,10 +69,16 @@ typedef struct variable_s
 {
     int offset;
     int is_param;
-    struct ast_node *data_type_node;
+    struct ast_node_s *data_type_node;
 } variable_t;
 
 #define FUNCTION_NAME_MAX_CHARACTERS (64)
+#define VOPCACHE_MAX (64)
+
+typedef struct
+{
+	voperand_t key, value;
+} vopcache_t;
 
 typedef struct function_s
 {
@@ -160,7 +88,19 @@ typedef struct function_s
     int localvariablesize;
 	
 	heap_string bytecode;
+
+	vinstr_t *instructions;
+	size_t instruction_index;
+	size_t index;
+
+	vinstr_t *returns[32];
+	size_t numreturns;
+
+	vopcache_t vopcache[VOPCACHE_MAX];
+	size_t vopcacheindex;
 } function_t;
+
+#define FUNCTION_MAX_INSTRUCTIONS (256)
 
 struct reljmp_s
 {
@@ -182,12 +122,12 @@ typedef struct reljmp_s reljmp_t;
 #define RJ_JMP (64)
 #define RJ_REVERSE (1<<30)
 
-struct scope
+typedef struct
 {
-    int numbreaks;
-    intptr_t breaks[16]; //TODO: N number of breaks, dynamic array / stack 
-    reljmp_t* break_cond;
-};
+	vinstr_t *breaks[32];
+	size_t maxbreaks;
+	size_t numbreaks;
+} scope_t;
 
 enum RELOC_TYPE
 {
@@ -251,11 +191,18 @@ typedef struct
 #define COMPILER_MAX_FUNCTIONS (64)
 #define COMPILER_MAX_SCOPES (16)
 
+typedef enum
+{
+	COMPILER_FLAGS_NONE,
+	COMPILER_FLAGS_ALU_THREE_OPERANDS,
+	COMPILER_FLAGS_INDIRECT_ADDRESSING
+} compiler_flags_t;
+
 struct compiler_s
 {
-	codegen_t cg;
 	arena_t *allocator;
 	int numbits;
+	int flags;
 	
     jmp_buf jmp;
 	
@@ -274,7 +221,7 @@ struct compiler_s
 	indexed_data_t indexed_data[MAX_INDEXED_DATA];
 	int numindexeddata;
 	
-    struct scope *scope[COMPILER_MAX_SCOPES]; //TODO: N number of scopes, dynamic array / stack
+    scope_t *scope[COMPILER_MAX_SCOPES]; //TODO: N number of scopes, dynamic array / stack
     int scope_index;
 
     void* find_import_fn_userptr;
@@ -283,13 +230,16 @@ struct compiler_s
 	int (*lvalue)(struct compiler_s *ctx, vreg_t reg, struct ast_node *n);
 	
 	void (*print)(struct compiler_s *ctx, const char *fmt, ...);
-	
+
+	size_t numfunctions;
 	struct hash_map *functions;
+
+	size_t vregindex;
 };
 
 typedef struct compiler_s compiler_t;
 
 int add_indexed_data(compiler_t *ctx, const void *buffer, size_t len);
 function_t *compiler_alloc_function(compiler_t *ctx, const char *name);
-void compiler_init(compiler_t *c, arena_t *allocator, int numbits);
+void compiler_init(compiler_t *c, arena_t *allocator, int numbits, compiler_flags_t flags);
 #endif

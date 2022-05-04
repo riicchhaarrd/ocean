@@ -1,5 +1,4 @@
 #include "arena.h"
-#include "codegen.h"
 #include "data_type.h"
 #include "imm.h"
 #include "operand.h"
@@ -8,7 +7,6 @@
 #include "compile.h"
 #include "rhd/linked_list.h"
 #include "rhd/hash_map.h"
-#include "codegen_targets.h"
 #include "instruction.h"
 #include "token.h"
 #include "types.h"
@@ -221,7 +219,6 @@ void compiler_init(compiler_t *c, arena_t *allocator, int numbits, compiler_flag
 
 	// mainly just holder for global variables and maybe code without function
 	c->function = compiler_alloc_function(c, "_global_variables");
-	/* codegen_x64(&c->cg); */
 }
 
 static int fundamental_type_size(compiler_t* ctx, int type)
@@ -236,8 +233,6 @@ static int fundamental_type_size(compiler_t* ctx, int type)
 			return ctx->fts.intsize;
 		case DT_LONG:
 			return ctx->fts.longsize;
-		case DT_NUMBER:
-			return ctx->fts.floatsize;
 		case DT_FLOAT:
 			return ctx->fts.floatsize;
 		case DT_DOUBLE:
@@ -702,8 +697,6 @@ rvalue_map_t rvalues[] = {{AST_LITERAL, literal},
 
 bool rvalue(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 {
-	codegen_t* cg = &ctx->cg;
-
 	for(size_t i = 0; i < COUNT_OF(rvalues); ++i)
 	{
 		if(rvalues[i].node_type == n->type)
@@ -971,7 +964,6 @@ static ast_node_map_t nodes[] = {{AST_PROGRAM, program},
 
 bool compile_visit_node(compiler_t* ctx, ast_node_t* n)
 {
-	codegen_t *cg = &ctx->cg;
 	for (size_t i = 0; i < COUNT_OF(nodes); ++i)
 	{
 		if (nodes[i].node_type == n->type)

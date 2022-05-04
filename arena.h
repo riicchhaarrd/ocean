@@ -1,5 +1,7 @@
 #ifndef SIMPLE_ARENA
 #define SIMPLE_ARENA
+#include <stddef.h>
+#include <malloc.h>
 
 typedef struct arena_s
 {

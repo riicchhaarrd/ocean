@@ -6,11 +6,13 @@
 #include "arena.h"
 #include "parse.h"
 
-#define ENUM_BEGIN(typ) enum typ {
+#define ENUM_BEGIN(typ) typedef enum {
 #define ENUM(nam) nam
 #define ENUM_VALUE(nam, val) nam = val
-#define ENUM_END(typ) };
+#define ENUM_END(typ) } typ;
 #include "ast_node_type.h"
+
+#include "types.h"
 
 #undef ENUM_BEGIN
 #undef ENUM
@@ -31,145 +33,143 @@
 	}
 #include "ast_node_type.h"
 
-struct ast_node;
+typedef struct ast_node_s ast_node_t;
 
 #define IDENT_CHARLEN (64)
 
-enum AST_LITERAL_TYPE
+typedef enum
 {
 	LITERAL_INTEGER,
-    LITERAL_FLOAT,
-    LITERAL_DOUBLE,
+    LITERAL_NUMBER,
     LITERAL_STRING
-};
+} ast_literal_type_t;
 
-struct ast_block_stmt
+typedef struct
 {
     struct linked_list *body;
-};
+} ast_block_stmt_t;
 
-struct ast_literal
+typedef struct
 {
-    enum AST_LITERAL_TYPE type;
+    ast_literal_type_t type;
 
     union
     {
         char string[IDENT_CHARLEN]; //C's max identifier length is 31 iirc
-        float flt;
-        double dbl;
-        int integer;
-        float vector[4];
+        scalar_t scalar;
+        integer_t integer;
+        double vector[4];
     };
-};
+} ast_literal_t;
 
-struct ast_identifier
+typedef struct
 {
     char name[IDENT_CHARLEN];
-};
+} ast_identifier_t;
 
-static void print_literal(struct ast_literal* lit)
+static void print_literal(ast_literal_t* lit)
 {
     //TODO: FIX non-integers
     if(lit->type == LITERAL_INTEGER)
-    printf("literal %d\n", lit->integer);
-    else if(lit->type == LITERAL_FLOAT)
-    printf("literal %f\n", lit->flt);
+    printf("literal %lld\n", lit->integer.value);
+    else if(lit->type == LITERAL_NUMBER)
+    printf("literal %Lf\n", lit->scalar.value);
     else if(lit->type == LITERAL_STRING)
         printf("literal '%s'\n", lit->string);
     else
         printf("literal ??????\n");
 }
 
-struct ast_bin_expr
+typedef struct
 {
-    struct ast_node *lhs;
-    struct ast_node *rhs;
+    ast_node_t *lhs;
+    ast_node_t *rhs;
     int operator;
-};
+} ast_bin_expr_t;
 
-struct ast_function_call_expr
+typedef struct
 {
-    struct ast_node *callee;
-    struct ast_node *arguments[32];
+    ast_node_t *callee;
+    ast_node_t *arguments[32];
     int numargs;
-};
+} ast_function_call_expr_t;
 
-struct ast_unary_expr
+typedef struct
 {
-	struct ast_node *argument;
+	ast_node_t *argument;
     int operator;
     int prefix;
-};
+} ast_unary_expr_t;
 
-struct ast_assignment_expr
+typedef struct
 {
-    struct ast_node *lhs;
-    struct ast_node *rhs;
+    ast_node_t *lhs;
+    ast_node_t *rhs;
     int operator;
-};
+} ast_assignment_expr_t;
 
-struct ast_expr_stmt
+typedef struct
 {
-	struct ast_node *expr;
-};
+	ast_node_t *expr;
+} ast_expr_stmt_t;
 
-struct ast_if_stmt
+typedef struct
 {
-    struct ast_node *test;
-    struct ast_node *consequent;
-    struct ast_node *alternative;
-};
+    ast_node_t *test;
+    ast_node_t *consequent;
+    ast_node_t *alternative;
+} ast_if_stmt_t;
 
-struct ast_for_stmt
+typedef struct
 {
-    struct ast_node *init;
-    struct ast_node *test;
-    struct ast_node *update;
-    struct ast_node *body;
-};
+    ast_node_t *init;
+    ast_node_t *test;
+    ast_node_t *update;
+    ast_node_t *body;
+} ast_for_stmt_t;
 
-struct ast_while_stmt
+typedef struct
 {
-    struct ast_node *test;
-    struct ast_node *body;
-};
+    ast_node_t *test;
+    ast_node_t *body;
+} ast_while_stmt_t;
 
-struct ast_do_while_stmt
+typedef struct
 {
-    struct ast_node *test;
-    struct ast_node *body;
-};
+    ast_node_t *test;
+    ast_node_t *body;
+} ast_do_while_stmt_t;
 
-struct ast_function_decl
+typedef struct
 {
-    struct ast_node *id;
-    struct ast_node *parameters[32];
+    ast_node_t *id;
+    ast_node_t *parameters[32];
     int numparms;
-    struct ast_node *body; //no body means just forward declaration, just prototype function
-    struct ast_node *return_data_type;
+    ast_node_t *body; //no body means just forward declaration, just prototype function
+    ast_node_t *return_data_type;
     int variadic;
     //TODO: access same named variables in different scopes
-    struct ast_node *declarations[64]; //TODO: increase max amount of local variables, for now this'll do
+    ast_node_t *declarations[64]; //TODO: increase max amount of local variables, for now this'll do
     int numdeclarations;
-};
+} ast_function_decl_t;
 
-struct ast_program
+typedef struct
 {
     struct linked_list *body;   
-};
+} ast_program_t;
 
-struct ast_return_stmt
+typedef struct
 {
-    struct ast_node *argument;
-};
+    ast_node_t *argument;
+} ast_return_stmt_t;
 
-struct ast_member_expr
+typedef struct
 {
-    struct ast_node *object;
-    struct ast_node *property;
+    ast_node_t *object;
+    ast_node_t *property;
     int computed; //unused atm
     int as_pointer;
-};
+} ast_member_expr_t;
 
 enum TYPE_QUALIFIER
 {
@@ -180,147 +180,148 @@ enum TYPE_QUALIFIER
 };
 
 /* int,char,float,double etc...*/
-struct ast_primitive
+typedef struct
 {
     int primitive_type;
 	int qualifiers;
-};
+} ast_primitive_t;
 
 //TODO: FIXME rename
 //maybe name is too generic?
-struct ast_data_type
+typedef struct
 {
-    struct ast_node *data_type;
+    ast_node_t *data_type;
     int qualifiers;
 	int array_size;
-};
+} ast_data_type_t;
 
-struct ast_struct_decl
+typedef struct
 {
 	char name[IDENT_CHARLEN];
-	struct ast_node* fields[32]; // TODO: increase N
+	ast_node_t* fields[32]; // TODO: increase N
 	int numfields;
-};
+} ast_struct_decl_t;
 
-struct ast_variable_decl
+typedef struct
 {
-    struct ast_node *id;
-    struct ast_node *data_type;
-    struct ast_node *initializer_value;
-};
+    ast_node_t *id;
+    ast_node_t *data_type;
+    ast_node_t *initializer_value;
+} ast_variable_decl_t;
 
-struct ast_emit
+typedef struct
 {
     int opcode;
-};
+} ast_emit_t;
 
-struct ast_sizeof
+typedef struct
 {
-    struct ast_node *subject;
-};
+    ast_node_t *subject;
+} ast_sizeof_t;
 
-struct ast_ternary_expr
+typedef struct
 {
-    struct ast_node *condition;
-    struct ast_node *consequent;
-    struct ast_node *alternative;
-};
+    ast_node_t *condition;
+    ast_node_t *consequent;
+    ast_node_t *alternative;
+} ast_ternary_expr_t;
 
-struct ast_break_stmt
+typedef struct
 {
     //maybe add break level, nested loops
     //keep track of which loop node we're in maybe
     int unused;
-};
+} ast_break_stmt_t;
 
-struct ast_seq_expr
+typedef struct
 {
-    struct ast_node *expr[16]; //TODO: increase N
+    ast_node_t *expr[16]; //TODO: increase N
     int numexpr;
-};
+} ast_seq_expr_t;
 
-struct ast_cast
+typedef struct
 {
-    struct ast_node *type;
-    struct ast_node *expr;
-};
+    ast_node_t *type;
+    ast_node_t *expr;
+} ast_cast_t;
 
 
 //typedef node
 //typedef unsigned char BYTE;
 
-struct ast_typedef
+typedef struct
 {
 	char name[IDENT_CHARLEN];
-    struct ast_node *type;
-};
+    ast_node_t *type;
+} ast_typedef_t;
 
 // enum node
 // enum colors { red, green, blue };
 
-struct ast_enum
+typedef struct
 {
     char name[IDENT_CHARLEN]; //enum name
-	struct ast_node* values[32]; //holds the identifiers (ast_identifier) the enum value is the index
+	ast_node_t* values[32]; //holds the identifiers (ast_identifier) the enum value is the index
 	int numvalues;
-};
+} ast_enum_t;
 
-struct ast_enum_value
+typedef struct
 {
     char ident[IDENT_CHARLEN];
     int value;
+} ast_enum_value_t;
+
+struct ast_node_s
+{
+	ast_node_t *parent;
+	ast_node_type_t type;
+	int start, end;
+	int rvalue;
+	union
+	{
+		ast_block_stmt_t block_stmt_data;
+		ast_bin_expr_t bin_expr_data;
+		ast_literal_t literal_data;
+		ast_expr_stmt_t expr_stmt_data;
+		ast_unary_expr_t unary_expr_data;
+		ast_assignment_expr_t assignment_expr_data;
+		ast_identifier_t identifier_data;
+		ast_function_call_expr_t call_expr_data;
+		ast_if_stmt_t if_stmt_data;
+		ast_for_stmt_t for_stmt_data;
+		ast_while_stmt_t while_stmt_data;
+		ast_do_while_stmt_t do_while_stmt_data;
+		ast_function_decl_t func_decl_data;
+		ast_program_t program_data;
+		ast_return_stmt_t return_stmt_data;
+		ast_member_expr_t member_expr_data;
+		ast_variable_decl_t variable_decl_data;
+		ast_primitive_t primitive_data;
+		ast_emit_t emit_data;
+		ast_sizeof_t sizeof_data;
+		ast_ternary_expr_t ternary_expr_data;
+		ast_break_stmt_t break_stmt_data;
+		ast_seq_expr_t seq_expr_data;
+		ast_cast_t cast_data;
+		ast_data_type_t data_type_data;
+		ast_struct_decl_t struct_decl_data;
+		ast_typedef_t typedef_data;
+		ast_enum_t enum_data;
+		ast_enum_value_t enum_value_data;
+	};
 };
 
-typedef struct ast_node
+static void ast_print_node_type(const char* key, ast_node_t* n)
 {
-    struct ast_node *parent;
-	enum AST_NODE_TYPE type;
-    int start, end;
-    int rvalue;
-    union
-    {
-        struct ast_block_stmt block_stmt_data;
-		struct ast_bin_expr bin_expr_data;
-        struct ast_literal literal_data;
-        struct ast_expr_stmt expr_stmt_data;
-        struct ast_unary_expr unary_expr_data;
-        struct ast_assignment_expr assignment_expr_data;
-        struct ast_identifier identifier_data;
-        struct ast_function_call_expr call_expr_data;
-        struct ast_if_stmt if_stmt_data;
-        struct ast_for_stmt for_stmt_data;
-        struct ast_while_stmt while_stmt_data;
-        struct ast_do_while_stmt do_while_stmt_data;
-        struct ast_function_decl func_decl_data;
-        struct ast_program program_data;
-        struct ast_return_stmt return_stmt_data;
-        struct ast_member_expr member_expr_data;
-        struct ast_variable_decl variable_decl_data;
-        struct ast_primitive primitive_data;
-        struct ast_emit emit_data;
-        struct ast_sizeof sizeof_data;
-        struct ast_ternary_expr ternary_expr_data;
-        struct ast_break_stmt break_stmt_data;
-        struct ast_seq_expr seq_expr_data;
-        struct ast_cast cast_data;
-        struct ast_data_type data_type_data;
-        struct ast_struct_decl struct_decl_data;
-        struct ast_typedef typedef_data;
-        struct ast_enum enum_data;
-        struct ast_enum_value enum_value_data;
-    };
-} ast_node_t;
-
-static void ast_print_node_type(const char* key, struct ast_node* n)
-{
-    printf("node type: %s -> %s\n", key, AST_NODE_TYPE_to_string(n->type));
+	printf("node type: %s -> %s\n", key, ast_node_type_t_to_string(n->type));
 }
+
 struct ast_context
 {
 	arena_t *allocator;
-	struct ast_node *program_node;
-    struct ast_node *function;
-    struct ast_node *default_function;
+	ast_node_t *program_node;
+    ast_node_t *function;
+    ast_node_t *default_function;
     struct hash_map *type_definitions;
 	int numtypes;
 	
@@ -332,7 +333,7 @@ struct ast_context
 
 typedef struct ast_context ast_context_t;
 void ast_init_context(ast_context_t *ctx, arena_t *allocator);
-int ast_process_tokens(ast_context_t*, struct token *tokens, int num_tokens);
+bool ast_process_tokens(ast_context_t*, struct token* tokens, int num_tokens);
 
 //TODO: refactor traverse_context name to ast
 

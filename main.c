@@ -16,7 +16,6 @@
 #include "rhd/hash_map.h"
 
 #include "compile.h"
-#include "codegen.h"
 #include "rhd/hash_string.h"
 
 #ifdef _WIN32
