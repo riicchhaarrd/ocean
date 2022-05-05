@@ -18,6 +18,11 @@
 bool rvalue(compiler_t* ctx, ast_node_t* n, voperand_t* dst);
 bool compile_visit_node(compiler_t* ctx, ast_node_t* n);
 
+static size_t get_label(compiler_t *ctx)
+{
+	return ctx->labelindex++;
+}
+
 static void register_name(voperand_t op, vregister_t reg, char *buf, size_t maxlen)
 {
 	if((op.size == VOPERAND_SIZE_DOUBLE || op.size == VOPERAND_SIZE_FLOAT) && op.type == VOPERAND_REGISTER)
@@ -45,6 +50,9 @@ static const char* operand_to_string(voperand_t op)
 		case VOPERAND_INDIRECT_REGISTER_DISPLACEMENT:
 			register_name(op, op.reg_indirect_displacement.reg, regname, sizeof(regname));
 			snprintf(buf, 128, "%s [%%%s + %d]", voperand_size_names[op.size], regname, op.reg_indirect_displacement.disp);
+			break;
+		case VOPERAND_LABEL:
+			snprintf(buf, 128, "<sub_%d>", op.label);
 			break;
 		case VOPERAND_REGISTER:
 			register_name(op, op.reg, regname, sizeof(regname));
@@ -181,7 +189,7 @@ function_t *compiler_alloc_function(compiler_t *ctx, const char *name)
 	function_t gv;
 	gv.vopcacheindex = 0;
 	gv.index = ctx->numfunctions++;
-	gv.numreturns = 0;
+	/* gv.numreturns = 0; */
 	snprintf(gv.name, sizeof(gv.name), "%s", name);
 	gv.localvariablesize = 0;
 	//TODO: free/cleanup variables
@@ -211,6 +219,7 @@ void compiler_init(compiler_t *c, arena_t *allocator, int numbits, compiler_flag
 	c->fts.pointersize = 64;
 	
 	c->vregindex = VREG_MAX;
+	c->labelindex = 0;
 	
 	c->numbits = numbits;
 	c->allocator = allocator;
@@ -762,7 +771,8 @@ bool return_statement(compiler_t* ctx, ast_node_t* n)
 	vregister_t retreg = {.index = VREG_RETURN_VALUE };
 	voperand_t retop = register_operand(retreg);
 	load_operand(ctx, &retop, &op);
-	ctx->function->returns[ctx->function->numreturns++] = emit_instruction1(ctx, VOP_JMP, imm32_operand(0));
+	emit_instruction1(ctx, VOP_JMP, ctx->function->eoflabel);
+	/* ctx->function->returns[ctx->function->numreturns++] = emit_instruction1(ctx, VOP_JMP, imm32_operand(0)); */
 	return true;
 }
 bool block_statement(compiler_t* ctx, ast_node_t* n)
@@ -781,7 +791,8 @@ bool function_declaration(compiler_t* ctx, ast_node_t* n)
 		compiler_assert(ctx, !tmp, "function already exists '%s'", function_name);
 		function_t* func = compiler_alloc_function(ctx, function_name);
 		ctx->function = func;
-
+		func->eoflabel = label_operand(get_label(ctx));
+		
 		emit_instruction(ctx, VOP_ENTER);
 		/* vregister_t bpreg = {.index = VREG_BP, .usage = VRU_GENERAL_PURPOSE}; */
 		/* vregister_t spreg = {.index = VREG_SP, .usage = VRU_GENERAL_PURPOSE}; */
@@ -818,10 +829,11 @@ bool function_declaration(compiler_t* ctx, ast_node_t* n)
 
 		compile_visit_node(ctx, n->func_decl_data.body);
 
-		for (size_t i = 0; i < func->numreturns; ++i)
-		{
-			set_operand(func->returns[i], 0, imm32_operand(instruction_index(ctx) - func->returns[i]->index));
-		}
+		/* for (size_t i = 0; i < func->numreturns; ++i) */
+		/* { */
+		/* 	set_operand(func->returns[i], 0, imm32_operand(instruction_index(ctx) - func->returns[i]->index)); */
+		/* } */
+		emit_instruction1(ctx, VOP_LABEL, ctx->function->eoflabel);
 		emit_instruction(ctx, VOP_LEAVE);
 		/* emit_instruction2(ctx, VOP_MOV, register_operand(spreg), register_operand(bpreg)); */
 		/* emit_instruction1(ctx, VOP_POP, register_operand(bpreg)); */
@@ -861,8 +873,9 @@ static scope_t* active_scope(compiler_t* ctx)
 static void enter_scope(compiler_t* ctx, scope_t *scope)
 {
 	assert(ctx->scope_index + 1 < COUNT_OF(ctx->scope));
-	scope->numbreaks = 0;
-	scope->maxbreaks = COUNT_OF(scope->breaks);
+	/* scope->numbreaks = 0; */
+	/* scope->maxbreaks = COUNT_OF(scope->breaks); */
+	scope->breaklabel = invalid_operand();
 	ctx->scope[ctx->scope_index++] = scope;
 }
 
@@ -876,23 +889,24 @@ bool break_statement(compiler_t* ctx, ast_node_t* n)
 {
 	scope_t* scope = active_scope(ctx);
 	assert(scope);
-	vinstr_t* jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0)); // set temporarily to 0
-	scope->breaks[scope->numbreaks++] = jmp;
+	/* vinstr_t* jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0)); // set temporarily to 0 */
+	/* scope->breaks[scope->numbreaks++] = jmp; */
+	emit_instruction1(ctx, VOP_JMP, scope->breaklabel);
 	return true;
 }
 
 static void actualize_relative_scope_jumps(compiler_t *ctx)
 {
-	scope_t* scope = active_scope(ctx);
-	assert(scope);
+	/* scope_t* scope = active_scope(ctx); */
+	/* assert(scope); */
 
-	size_t current_instruction_index = instruction_index(ctx);
+	/* size_t current_instruction_index = instruction_index(ctx); */
 
-	for (size_t i = 0; i < scope->numbreaks; ++i)
-	{
-		vinstr_t *jmp = scope->breaks[i];
-		set_operand(jmp, 0, imm32_operand(current_instruction_index - jmp->index));	
-	}
+	/* for (size_t i = 0; i < scope->numbreaks; ++i) */
+	/* { */
+	/* 	vinstr_t *jmp = scope->breaks[i]; */
+	/* 	set_operand(jmp, 0, imm32_operand(current_instruction_index - jmp->index));	 */
+	/* } */
 }
 
 bool if_statement(compiler_t* ctx, ast_node_t* n)
@@ -901,28 +915,38 @@ bool if_statement(compiler_t* ctx, ast_node_t* n)
 	rvalue(ctx, n->if_stmt_data.test, &op);
 
 	emit_instruction2(ctx, VOP_TEST, op, op);
-	vinstr_t* jz = emit_instruction1(ctx, VOP_JZ, imm32_operand(0));
+	voperand_t jz_label = label_operand(get_label(ctx));
+	vinstr_t* jz = emit_instruction1(ctx, VOP_JZ, jz_label);
+	/* vinstr_t* jz = emit_instruction1(ctx, VOP_JZ, imm32_operand(0)); */
 	assert(n->if_stmt_data.consequent);
 	compile_visit_node(ctx, n->if_stmt_data.consequent);
 
+	voperand_t skip_if_label = label_operand(get_label(ctx));
+	
 	vinstr_t* jmp = NULL;
 	if (n->if_stmt_data.alternative)
 	{
-		jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0));
+		jmp = emit_instruction1(ctx, VOP_JMP, skip_if_label);
+		/* jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0)); */
 	}
-	
-	set_operand(jz, 0, imm32_operand(instruction_index(ctx) - jz->index));
+
+	emit_instruction1(ctx, VOP_LABEL, jz_label);
+	/* set_operand(jz, 0, imm32_operand(instruction_index(ctx) - jz->index)); */
 	
 	if (n->if_stmt_data.alternative)
 	{
-		vinstr_t* jnz = emit_instruction1(ctx, VOP_JNZ, imm32_operand(0));
+		voperand_t jnz_label = label_operand(get_label(ctx));
+		vinstr_t* jnz = emit_instruction1(ctx, VOP_JNZ, jnz_label);
+		/* vinstr_t* jnz = emit_instruction1(ctx, VOP_JNZ, imm32_operand(0)); */
 		compile_visit_node(ctx, n->if_stmt_data.alternative);
-		set_operand(jnz, 0, imm32_operand(instruction_index(ctx) - jnz->index));
+		emit_instruction1(ctx, VOP_LABEL, jnz_label);
+		/* set_operand(jnz, 0, imm32_operand(instruction_index(ctx) - jnz->index)); */
 	}
 
 	if(jmp)
 	{
-		set_operand(jmp, 0, imm32_operand(instruction_index(ctx) - jmp->index));
+		/* set_operand(jmp, 0, imm32_operand(instruction_index(ctx) - jmp->index)); */
+		emit_instruction1(ctx, VOP_LABEL, skip_if_label);
 	}
 	return true;
 }
@@ -934,21 +958,28 @@ bool while_statement(compiler_t* ctx, ast_node_t* n)
 
 	size_t pos_beg = instruction_index(ctx);
 
+	voperand_t beginlabel = label_operand(get_label(ctx));
+	scope.breaklabel = label_operand(get_label(ctx));
+	emit_instruction1(ctx, VOP_LABEL, beginlabel);
+
 	voperand_t op;
 	rvalue(ctx, n->while_stmt_data.test, &op);
 	
 	emit_instruction2(ctx, VOP_TEST, op, op);
-	vinstr_t *jz = emit_instruction1(ctx, VOP_JZ, imm32_operand(0)); //set temporarily to 0
+	/* vinstr_t *jz = emit_instruction1(ctx, VOP_JZ, imm32_operand(0)); //set temporarily to 0 */
+	emit_instruction1(ctx, VOP_JZ, scope.breaklabel);
 	
 	compile_visit_node(ctx, n->while_stmt_data.body);
 
-	vinstr_t* jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0));
-	set_operand(jmp, 0, imm32_operand(pos_beg - jmp->index)); //jump back to beginning
+	/* vinstr_t* jmp = emit_instruction1(ctx, VOP_JMP, imm32_operand(0)); */
+	/* set_operand(jmp, 0, imm32_operand(pos_beg - jmp->index)); //jump back to beginning */
+	emit_instruction1(ctx, VOP_JMP, beginlabel);
 
-	size_t pos_end = instruction_index(ctx);
-	set_operand(jz, 0, imm32_operand(pos_end - jz->index)); //set to jump to end when test fails
+	emit_instruction1(ctx, VOP_LABEL, scope.breaklabel);
+	/* size_t pos_end = instruction_index(ctx); */
+	/* set_operand(jz, 0, imm32_operand(pos_end - jz->index)); //set to jump to end when test fails */
 	
-	actualize_relative_scope_jumps(ctx);
+	/* actualize_relative_scope_jumps(ctx); */
 
 	exit_scope(ctx);
 	return true;
@@ -1070,13 +1101,18 @@ static void allocate_registers(function_t *f)
 			if (r->pop_location != i)
 				continue;
 
-			printf("pop ");
+			printf("\tpop ");
 			print_instruction_operand(&r->register_operand, false);
 			printf("\n");
 			r->pop_location = -1;
 		}
 
 		vinstr_t* instr = &f->instructions[i];
+		if(instr->opcode == VOP_LABEL)
+		{
+			printf("sub_%d:\n", instr->operands[0].label);
+			continue;
+		}
 		for (size_t j = 0; j < instr->numoperands; ++j)
 		{
 			voperand_t* op = &instr->operands[j];
@@ -1098,7 +1134,7 @@ static void allocate_registers(function_t *f)
 								ar = &registers[ri];
 								ar->pop_location = ri + lf;
 								ar->register_operand = *op;
-								printf("push ");
+								printf("\tpush ");
 								print_instruction_operand(op, false);
 								printf("\n");
 								break;
@@ -1121,7 +1157,7 @@ static void allocate_registers(function_t *f)
 			}
 		}
 
-		printf("%s ", vopcode_names[instr->opcode]);
+		printf("\t\t%s ", vopcode_names[instr->opcode]);
 		for (size_t j = 0; j < instr->numoperands; ++j)
 			print_instruction_operand(&instr->operands[j], j != instr->numoperands - 1);
 		printf("\n");

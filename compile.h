@@ -93,11 +93,12 @@ typedef struct function_s
 	size_t instruction_index;
 	size_t index;
 
-	vinstr_t *returns[32];
-	size_t numreturns;
+	/* vinstr_t *returns[32]; */
+	/* size_t numreturns; */
 
 	vopcache_t vopcache[VOPCACHE_MAX];
 	size_t vopcacheindex;
+	voperand_t eoflabel;
 } function_t;
 
 #define FUNCTION_MAX_INSTRUCTIONS (256)
@@ -124,9 +125,10 @@ typedef struct reljmp_s reljmp_t;
 
 typedef struct
 {
-	vinstr_t *breaks[32];
-	size_t maxbreaks;
-	size_t numbreaks;
+	/* vinstr_t *breaks[32]; */
+	/* size_t maxbreaks; */
+	/* size_t numbreaks; */
+	voperand_t breaklabel;
 } scope_t;
 
 enum RELOC_TYPE
@@ -235,6 +237,7 @@ struct compiler_s
 	struct hash_map *functions;
 
 	size_t vregindex;
+	size_t labelindex;
 };
 
 typedef struct compiler_s compiler_t;

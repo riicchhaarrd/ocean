@@ -12,8 +12,9 @@ typedef enum
 	VOPERAND_REGISTER,
 	VOPERAND_INDIRECT_REGISTER,
 	VOPERAND_INDIRECT_REGISTER_DISPLACEMENT,
-	VOPERAND_INDIRECT_REGISTER_INDEXED
+	VOPERAND_INDIRECT_REGISTER_INDEXED,
 	// for dst only register and address are valid
+	VOPERAND_LABEL
 } voperand_type_t;
 
 static const char *voperand_type_strings[] = {"invalid","immediate","indirect","register","indirect register","indirect register displacement","register indexed",NULL};
@@ -51,6 +52,7 @@ typedef struct
 			vregister_t indexed_reg;
 			vregister_t reg;
 		} reg_indirect_indexed;
+		size_t label;
 	};
 } voperand_t;
 
@@ -82,6 +84,13 @@ static voperand_t indirect_register_indexed_operand(vregister_t reg, vregister_t
 	op.reg_indirect_indexed.indexed_reg = indexreg;
 	op.reg_indirect_indexed.reg = reg;
 	op.reg_indirect_indexed.scale = scale;
+	return op;
+}
+
+static voperand_t label_operand(size_t label_value)
+{
+	voperand_t op = {.type = VOPERAND_LABEL, .size = VOPERAND_SIZE_NATIVE};
+	op.label = label_value;
 	return op;
 }
 
