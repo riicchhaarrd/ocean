@@ -7,7 +7,7 @@
 
 typedef struct
 {
-	size_t index;
+	/* size_t index; */
 	vopcode_t opcode;
 	voperand_t operands[4];
 	size_t numoperands;

@@ -70,6 +70,7 @@ typedef struct variable_s
     int offset;
     int is_param;
     struct ast_node_s *data_type_node;
+	voperand_t operand;
 } variable_t;
 
 #define FUNCTION_NAME_MAX_CHARACTERS (64)

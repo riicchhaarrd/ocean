@@ -54,25 +54,26 @@ typedef struct
 		} reg_indirect_indexed;
 		size_t label;
 	};
+	bool virtual;
 } voperand_t;
 
 static voperand_t indirect_operand(imm_t imm, voperand_size_t size)
 {
-	voperand_t op = {.type = VOPERAND_INDIRECT, .size = size};
+	voperand_t op = {.type = VOPERAND_INDIRECT, .size = size, .virtual = true};
 	op.imm = imm;
 	return op;
 }
 
 static voperand_t indirect_register_operand(vregister_t reg)
 {
-	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER, .size = VOPERAND_SIZE_NATIVE};
+	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER, .size = VOPERAND_SIZE_NATIVE, .virtual = true};
 	op.reg = reg;
 	return op;
 }
 
 static voperand_t indirect_register_displacement_operand(vregister_t reg, u32 disp, voperand_size_t size)
 {
-	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER_DISPLACEMENT, .size = size};
+	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER_DISPLACEMENT, .size = size, .virtual = true};
 	op.reg_indirect_displacement.reg = reg;
 	op.reg_indirect_displacement.disp = disp;
 	return op;
@@ -80,7 +81,7 @@ static voperand_t indirect_register_displacement_operand(vregister_t reg, u32 di
 
 static voperand_t indirect_register_indexed_operand(vregister_t reg, vregister_t indexreg, u32 scale, voperand_size_t size)
 {
-	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER_INDEXED, .size = size};
+	voperand_t op = {.type = VOPERAND_INDIRECT_REGISTER_INDEXED, .size = size, .virtual = true};
 	op.reg_indirect_indexed.indexed_reg = indexreg;
 	op.reg_indirect_indexed.reg = reg;
 	op.reg_indirect_indexed.scale = scale;
@@ -89,14 +90,14 @@ static voperand_t indirect_register_indexed_operand(vregister_t reg, vregister_t
 
 static voperand_t label_operand(size_t label_value)
 {
-	voperand_t op = {.type = VOPERAND_LABEL, .size = VOPERAND_SIZE_NATIVE};
+	voperand_t op = {.type = VOPERAND_LABEL, .size = VOPERAND_SIZE_NATIVE, .virtual = true};
 	op.label = label_value;
 	return op;
 }
 
 static voperand_t imm32_operand(i32 i)
 {
-	voperand_t op = {.type = VOPERAND_IMMEDIATE, .size = VOPERAND_SIZE_32_BITS};
+	voperand_t op = {.type = VOPERAND_IMMEDIATE, .size = VOPERAND_SIZE_32_BITS, .virtual = true};
 	op.imm.nbits = 32;
 	op.imm.dd = i;
 	return op;
@@ -104,7 +105,7 @@ static voperand_t imm32_operand(i32 i)
 
 static voperand_t imm64_operand(i64 i)
 {
-	voperand_t op = {.type = VOPERAND_IMMEDIATE, .size = VOPERAND_SIZE_64_BITS};
+	voperand_t op = {.type = VOPERAND_IMMEDIATE, .size = VOPERAND_SIZE_64_BITS, .virtual = true};
 	op.imm.nbits = 64;
 	op.imm.dq = i;
 	return op;
@@ -112,15 +113,13 @@ static voperand_t imm64_operand(i64 i)
 
 static voperand_t invalid_operand()
 {
-	voperand_t op = {
-		.type = VOPERAND_INVALID
-	};
+	voperand_t op = {.type = VOPERAND_INVALID, .virtual = true};
 	return op;
 }
 
 static voperand_t register_operand(vregister_t reg)
 {
-	voperand_t op = {.type = VOPERAND_REGISTER, .size = VOPERAND_SIZE_NATIVE};
+	voperand_t op = {.type = VOPERAND_REGISTER, .size = VOPERAND_SIZE_NATIVE, .virtual = true};
 	op.reg = reg;
 	return op;
 }
