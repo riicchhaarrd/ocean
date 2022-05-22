@@ -70,7 +70,6 @@ typedef struct variable_s
     int offset;
     int is_param;
     struct ast_node_s *data_type_node;
-	voperand_t operand;
 } variable_t;
 
 #define FUNCTION_NAME_MAX_CHARACTERS (64)
@@ -84,7 +83,8 @@ typedef struct
 typedef struct function_s
 {
 	char name[FUNCTION_NAME_MAX_CHARACTERS];
-	
+
+	struct hash_map *arguments;
     struct hash_map *variables;
     int localvariablesize;
 	
@@ -100,6 +100,8 @@ typedef struct function_s
 	vopcache_t vopcache[VOPCACHE_MAX];
 	size_t vopcacheindex;
 	voperand_t eoflabel;
+	int argcost;
+	int returnsize;
 } function_t;
 
 #define FUNCTION_MAX_INSTRUCTIONS (256)

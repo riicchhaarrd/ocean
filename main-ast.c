@@ -17,6 +17,14 @@
 #include "parse.h"
 #include "compile.h"
 
+static void print_hex(u8 *buf, size_t n)
+{
+	for (int i = 0; i < n; ++i)
+	{
+		printf("%02X%s", buf[i] & 0xff, i + 1 == n ? "" : " ");
+	}
+}
+
 int generate_ast(struct token* tokens, int num_tokens, struct linked_list** ll /*for freeing the whole tree*/,
 				 struct ast_node** root, bool);
 int main(int argc, char **argv)
@@ -60,8 +68,8 @@ int main(int argc, char **argv)
 
 	if(ast_process_tokens(&ast_context, tokens, num_tokens))
 	{
-		print_ast(ast_context.program_node, 0);
-		printf("done processing tokens\n");
+		/* print_ast(ast_context.program_node, 0); */
+		/* printf("done processing tokens\n"); */
 	}
 	// gcc -w -g main-ast.c lex.c ast.c pre.c parse.c && gdb -ex run --args ./a.out examples/syscall.c
 
@@ -83,11 +91,15 @@ int main(int argc, char **argv)
 	int compile(compiler_t * ctx, ast_node_t * head);
 	compile(&compile_ctx, ast_context.program_node);
 
-	void gen(vinstr_t * instructions, size_t n);
 	function_t* lookup_function_by_name(compiler_t* ctx, const char* name);
 	function_t *fn = lookup_function_by_name(&compile_ctx, "main");
 	assert(fn);
-	gen(fn->instructions, fn->instruction_index);
+	heap_string s = NULL;
+	bool x86(function_t * f, heap_string*);
+	x86(fn, &s);
+	print_hex(s, heap_string_size(&s));
+	
+	heap_string_free(&s);
 	free(tokens);
 	heap_string_free(&data);
 	arena_destroy(&arena);

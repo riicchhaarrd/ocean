@@ -43,12 +43,12 @@ typedef struct
 		imm_t indirect;
 		struct
 		{
-			u32 disp;
+			i32 disp;
 			vregister_t reg;
 		} reg_indirect_displacement;
 		struct
 		{
-			u32 scale;
+			i32 scale;
 			vregister_t indexed_reg;
 			vregister_t reg;
 		} reg_indirect_indexed;

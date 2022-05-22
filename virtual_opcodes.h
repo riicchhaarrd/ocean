@@ -5,7 +5,7 @@
 static const char* vopcode_names[] = {
 	"add",	"sub", "mul", "div", "mod",	 "fadd", "fsub",  "fmul", "fdiv", "fmod",  "sitofp", "fptosi", "and",
 	"or",	"xor", "not", "mov", "load", "lea",	 "store", "push", "pop",  "enter", "leave",	 "call",   "ret",
-	"test", "cmp", "jmp", "jnz", "jz",	 "jle",	 "jge",	  "jg",	  "jl",	  "label", "hlt",	 NULL};
+	"test", "cmp", "jmp", "jnz", "jz",	 "jle",	 "jge",	  "jg",	  "jl",	  "label", "alloca", "hlt",	   NULL};
 
 typedef enum
 {	
@@ -55,6 +55,7 @@ typedef enum
 	VOP_JG,
 	VOP_JL,
 	VOP_LABEL,
+	VOP_ALLOCA,
 	VOP_HLT
 } vopcode_t;
 

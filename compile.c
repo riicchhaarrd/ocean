@@ -43,15 +43,10 @@ static void register_name(voperand_t op, vregister_t reg, char* buf, size_t maxl
 		return;
 	}
 
-	static const char* x86_regnames[] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", NULL};
-	static const char* fakeregnames[] = {"sp", "bp", "ip", "return_value",
-										 "a",  "b",	 "c",  "d",
-										 "e",  "f",	 "g",  "h",
-										 "j",  "k",	 "l",  "m",
-										 "n",  "o",	 "p",  "q",
-										 "r",  "s",	 "t",  "u",
-										 "v",  "w",	 "x",  "y",
-										 "z",  NULL};
+	//NOTE: actual order is eax, ecx, edx...
+	//but gcc uses edx for some reason over ecx, so i swapped edx and ecx here
+	static const char* x86_regnames[] = {"eax", "edx", "ecx", "ebx", "esp", "ebp", "esi", "edi", NULL};
+	static const char* fakeregnames[] = {"sp", "bp", "ip", "return_value"};
 
 	if (!op.virtual)
 	{
@@ -76,7 +71,16 @@ static const char* operand_to_string(voperand_t op)
 	{
 		case VOPERAND_INDIRECT_REGISTER_DISPLACEMENT:
 			register_name(op, op.reg_indirect_displacement.reg, regname, sizeof(regname));
-			snprintf(buf, 128, "%s [%s + %d]", voperand_size_names[op.size], regname, op.reg_indirect_displacement.disp);
+			if(op.reg_indirect_displacement.disp > 0)
+			{
+				snprintf(buf, 128, "%s [%s + %d]", voperand_size_names[op.size], regname,
+						 op.reg_indirect_displacement.disp);
+			}
+			else
+			{
+				snprintf(buf, 128, "%s [%s - %d]", voperand_size_names[op.size], regname,
+						 -op.reg_indirect_displacement.disp);
+			}
 			break;
 		case VOPERAND_LABEL:
 			snprintf(buf, 128, "<sub_%d>", op.label);
@@ -221,6 +225,7 @@ function_t *compiler_alloc_function(compiler_t *ctx, const char *name)
 	gv.localvariablesize = 0;
 	//TODO: free/cleanup variables
 	gv.variables = hash_map_create_with_custom_allocator(variable_t, ctx->allocator, arena_alloc);
+	gv.arguments = hash_map_create_with_custom_allocator(variable_t, ctx->allocator, arena_alloc);
 	gv.bytecode = NULL;
 	gv.instructions = arena_alloc(ctx->allocator, sizeof(vinstr_t) * FUNCTION_MAX_INSTRUCTIONS);
 	gv.instruction_index = 0;
@@ -259,6 +264,15 @@ void compiler_init(compiler_t *c, arena_t *allocator, int numbits, compiler_flag
 	c->function = compiler_alloc_function(c, "_global_variables");
 }
 
+function_t* lookup_function_by_name(compiler_t* ctx, const char* name)
+{
+	hash_map_foreach_entry(ctx->functions, it, {
+		if (!strcmp(it->key, name))
+			return it->data;
+	});
+	return NULL;
+}
+
 static int fundamental_type_size(compiler_t* ctx, int type)
 {
 	switch (type)
@@ -282,10 +296,44 @@ static int fundamental_type_size(compiler_t* ctx, int type)
 	return 0;
 }
 
+static variable_t *find_variable(compiler_t *ctx, const char *varname)
+{
+	// try local variables first
+	variable_t *var = hash_map_find(ctx->function->variables, varname);
+	if(var)
+		return var;
+	// try arguments
+	var = hash_map_find(ctx->function->arguments, varname);
+	if(var)
+		return var;
+	//TODO: globals
+	return NULL;
+}
+
 static int data_type_size(compiler_t* ctx, ast_node_t* n)
 {
 	switch (n->type)
 	{
+		case AST_FUNCTION_CALL_EXPR:
+		{
+			ast_node_t* callee = n->call_expr_data.callee;
+			function_t* fn = lookup_function_by_name(ctx, callee->identifier_data.name);
+			assert(fn);
+			return fn->returnsize;
+		}
+		break;
+		
+		case AST_LITERAL:
+		{
+			ast_literal_t *lit = &n->literal_data;
+			if(lit->integer.suffix == INTEGER_SUFFIX_LONG_LONG || lit->integer.suffix == INTEGER_SUFFIX_LONG)
+			{
+				return ctx->fts.longsize;
+			}
+			return ctx->fts.intsize;
+		}
+		break;
+		
 		case AST_STRUCT_DATA_TYPE:
 		{
 			int total = 0;
@@ -315,8 +363,7 @@ static int data_type_size(compiler_t* ctx, ast_node_t* n)
 		break;
 		case AST_IDENTIFIER:
 		{
-			variable_t* var = hash_map_find(ctx->function->variables, n->identifier_data.name);
-			if(!var) return 0;
+			variable_t* var = find_variable(ctx, n->identifier_data.name);
 			assert(var);
 			return data_type_size(ctx, var->data_type_node);
 		}
@@ -482,17 +529,8 @@ bool lvalue( compiler_t* ctx, ast_node_t* n, voperand_t *dst )
 	{
 		case AST_IDENTIFIER:
 		{
-			variable_t* var = hash_map_find( ctx->function->variables, n->identifier_data.name );
-			if(!var)
-			{
-				ast_node_t prim = {.type = AST_PRIMITIVE};
-				prim.primitive_data.primitive_type = DT_INT;
-				variable_t fv = {.data_type_node = NULL, .offset = -4};
-				fv.data_type_node = &prim;
-				var = &fv;
-			}
-			assert( var );
-
+			variable_t* var = find_variable(ctx, n->identifier_data.name);
+			assert(var);
 			ast_node_t* variable_type = var->data_type_node;
 			int numbytes = data_type_size(ctx, variable_type) / 8;
 			vregister_t bpreg = {.index = VREG_BP};
@@ -580,13 +618,11 @@ void literal(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 		{
 			voperand_t op = {.type = VOPERAND_IMMEDIATE};
 			op.imm.is_unsigned = lit->integer.is_unsigned;
-			if(lit->integer.suffix == INTEGER_SUFFIX_LONG_LONG || lit->integer.suffix == INTEGER_SUFFIX_LONG)
-			{
-				op.imm.nbits = 64;
+			op.imm.nbits = data_type_size(ctx, n);
+			if(op.imm.nbits == 64)
 				op.imm.dq = lit->integer.value;
-			} else
+			else
 			{
-				op.imm.nbits = 32;
 				//TODO: FIXME unsigned etc conversions
 				op.imm.dw = (i32)lit->integer.value;
 			}
@@ -735,15 +771,6 @@ void assignment_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 	*dst = rhs;
 }
 
-function_t* lookup_function_by_name(compiler_t* ctx, const char* name)
-{
-	hash_map_foreach_entry(ctx->functions, it, {
-		if (!strcmp(it->key, name))
-			return it->data;
-	});
-	return NULL;
-}
-
 void function_call_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 {
 	ast_node_t** args = n->call_expr_data.arguments;
@@ -751,7 +778,25 @@ void function_call_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 	ast_node_t* callee = n->call_expr_data.callee;
 	function_t* fn = lookup_function_by_name(ctx, callee->identifier_data.name);
 
+	size_t cost = 0;
+
+	for(size_t i = 0; i < numargs; ++i)
+	{
+		ast_node_t* arg = args[numargs - i - 1];
+		assert(arg->type == AST_IDENTIFIER || arg->type == AST_PRIMITIVE || arg->type == AST_LITERAL || arg->type == AST_FUNCTION_CALL_EXPR);
+		int vs = data_type_size(ctx, arg) / 8;
+		assert(vs > 0);
+		voperand_t op;
+		rvalue(ctx, arg, &op);
+		emit_instruction1(ctx, VOP_PUSH, op);
+		cost += vs;
+	}
+
+	assert(cost == fn->argcost);
+
 	emit_instruction1(ctx, VOP_CALL, imm32_operand(fn->index));
+	vregister_t spreg = {.index = VREG_SP};
+	emit_instruction2(ctx, VOP_ADD, register_operand(spreg), imm32_operand(fn->argcost));
 	vregister_t retreg = {.index = VREG_RETURN_VALUE };
 	*dst = register_operand(retreg);
 	/* if(!fn) */
@@ -855,6 +900,7 @@ bool function_declaration(compiler_t* ctx, ast_node_t* n)
 		function_t* func = compiler_alloc_function(ctx, function_name);
 		ctx->function = func;
 		func->eoflabel = label_operand(get_label(ctx));
+		func->returnsize = data_type_size(ctx, n->func_decl_data.return_data_type);
 		
 		emit_instruction(ctx, VOP_ENTER);
 		/* vregister_t bpreg = {.index = VREG_BP, .usage = VRU_GENERAL_PURPOSE}; */
@@ -867,28 +913,61 @@ bool function_declaration(compiler_t* ctx, ast_node_t* n)
 
 		// TODO: FIXME
 
-		// add up all the variables in the function's scope and calculate how much space in bytes we need to allocate
-		traverse_context_t traverse_ctx = {0};
+		ast_function_decl_t* fd = &n->func_decl_data;
+		ast_node_t **parms = fd->parameters;
 
-		ast_node_t* variable_declarations[32];
-		size_t num_variable_declarations =
-			ast_tree_nodes_by_type(&traverse_ctx, n->func_decl_data.body, AST_VARIABLE_DECL, &variable_declarations,
-								   COUNT_OF(variable_declarations));
-		// printf("vars %d\n", num_variable_declarations);
-		int numbits = 0;
-		for (size_t i = 0; i < num_variable_declarations; ++i)
+		int poffset = 8;
+		int numbytesarg = 0;
+		
+		for(size_t i = 0; i < fd->numparms; ++i)
 		{
-			const char* variable_name = variable_declarations[i]->variable_decl_data.id->identifier_data.name;
-			variable_t* tmp = hash_map_find(ctx->function->variables, variable_name);
-			compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
-			int variable_size = data_type_size(ctx, variable_declarations[i]->variable_decl_data.data_type);
-			allocate_variable(ctx, variable_declarations[i], variable_name, numbits / 8, variable_size / 8);
-			printf("var name = %s %s\n", ast_node_type_t_to_string(variable_declarations[i]->type), variable_name);
-
-			numbits += variable_size;
+			const char* variable_name = parms[i]->variable_decl_data.id->identifier_data.name;
+			variable_t* tmp = hash_map_find(ctx->function->arguments, variable_name);
+			compiler_assert(ctx, !tmp, "function argument already exists '%s'", variable_name);
+			
+			variable_t tv = {.offset = poffset, .is_param = 1, .data_type_node = parms[i]->variable_decl_data.data_type};
+			hash_map_insert(ctx->function->arguments, variable_name, tv);
+			int variable_size = data_type_size(ctx, parms[i]->variable_decl_data.data_type);
+			poffset += variable_size / 8;
+			numbytesarg += variable_size / 8;
+			//TODO: handle pass by value with rep movsd etc, or just use only pointers for now
 		}
 
-		// printf("numbytes=%d\n",numbits/8);
+		func->argcost = numbytesarg;
+
+		// add up all the variables in the function's scope and calculate how much space in bytes we need to allocate
+		/* traverse_context_t traverse_ctx = {0}; */
+
+		/* ast_node_t* variable_declarations[32]; */
+		/* size_t num_variable_declarations = */
+		/* 	ast_tree_nodes_by_type(&traverse_ctx, n->func_decl_data.body, AST_VARIABLE_DECL, &variable_declarations, */
+		/* 						   COUNT_OF(variable_declarations)); */
+		// printf("vars %d\n", num_variable_declarations);
+		int offset = -4;
+		size_t numbytes = 0;
+		ast_node_t **declarations = fd->declarations;
+		for (size_t i = 0; i < fd->numdeclarations; ++i)
+		{
+			const char* variable_name = declarations[i]->variable_decl_data.id->identifier_data.name;
+			variable_t* tmp = hash_map_find(ctx->function->variables, variable_name);
+			compiler_assert(ctx, !tmp, "variable already exists '%s'", variable_name);
+			int variable_size = data_type_size(ctx, declarations[i]->variable_decl_data.data_type);
+			size_t nb = variable_size / 8;
+			allocate_variable(ctx, declarations[i], variable_name, offset, nb);
+			/* printf("var name = %s %s, offset = %d, numbits=%d\n", ast_node_type_t_to_string(declarations[i]->type), variable_name, offset, variable_size / 8); */
+			offset -= nb;
+			numbytes += nb;
+		}
+
+		vregister_t bpreg = {.index = VREG_BP};
+		// allocate space for local variables
+
+		/* // align to 16 bytes */
+		/* numbytes += 16 - (numbytes % 16); */
+
+		/* emit_instruction2(ctx, VOP_SUB, register_operand(bpreg), imm32_operand(numbytes)); */
+
+		emit_instruction1(ctx, VOP_ALLOCA, imm32_operand(numbytes));
 
 		compile_visit_node(ctx, n->func_decl_data.body);
 
@@ -1217,271 +1296,6 @@ static alloc_reg_t *alloc_register(alloc_reg_t *registers, size_t numregisters, 
 	return lowest;
 }
 
-static void allocate_registers3(compiler_t *ctx, function_t *f, vinstr_t *new_instructions, size_t *new_instruction_length)
-{
-	alloc_reg_t registers[3]; //excluding r8... and rbp,rsp and st0... and xmm0... for now
-	for (size_t i = 0; i < COUNT_OF(registers); ++i)
-	{
-		registers[i].index = i;
-		registers[i].vregnum = 0;
-	}
-	for (size_t i = 0; i < f->instruction_index; ++i)
-	{
-		vinstr_t instr = f->instructions[i];
-		/* if(instr.opcode == VOP_LABEL) */
-		/* { */
-		/* 	printf("sub_%d:\n", instr.operands[0].label); */
-		/* 	continue; */
-		/* } */
-		int ignore = -1;
-		for (size_t j = 0; j < instr.numoperands; ++j)
-		{
-			voperand_t *op = &instr.operands[j];
-			
-			switch (op->type)
-			{
-				case VOPERAND_REGISTER:
-				case VOPERAND_INDIRECT_REGISTER:
-				{
-					if (op->reg.index < VREG_MAX)
-						continue;
-					bool push = false;
-					alloc_reg_t* r = alloc_register(registers, COUNT_OF(registers), f, i, op, &push, &ignore, j == 0);
-					/* assert(r); */
-					if(!r)
-					{
-						*op = invalid_operand();
-					}
-					else
-					{
-						if (j == 0)
-							ignore = r->index;
-						if (push)
-						{
-							vregister_t pushreg = {.index = r->index};
-							vinstr_t* ninstr = &new_instructions[*new_instruction_length];
-							*new_instruction_length += 1;
-							ninstr->opcode = VOP_PUSH;
-							ninstr->numoperands = 1;
-							ninstr->operands[0] = register_operand(pushreg);
-							/* assert(last_used_real_register != r->index); */
-							/* last_used_real_register = r->index; */
-						}
-						op->reg.index = r->index;
-					}
-				}
-				break;
-				case VOPERAND_INDIRECT_REGISTER_INDEXED:
-					perror("unimplemented");
-					break;
-				case VOPERAND_INDIRECT_REGISTER_DISPLACEMENT:
-					// for now we're just using bp so no need
-					assert(op->reg_indirect_displacement.reg.index < VREG_MAX);
-					break;
-			}
-		}
-
-		new_instructions[*new_instruction_length] = instr;
-		*new_instruction_length += 1;
-
-		//check for registers that can be popped
-		for (size_t k = 0; k < COUNT_OF(registers); ++k)
-		{
-			alloc_reg_t* r = &registers[k];
-			if (r->vregnum == 0)
-				continue; // not in use
-			vreg_pushed_t *v = &r->vreg[r->vregnum];
-			if(v->index_pushed_at + v->lifetime != i)
-				continue; //no need to pop
-
-			if(r->vregnum == 1)
-			{
-				r->vregnum = 0;
-			}
-			else
-			{
-
-				vregister_t popreg = {.index = k};
-				vinstr_t* ninstr = &new_instructions[*new_instruction_length];
-				*new_instruction_length += 1;
-				ninstr->opcode = VOP_POP;
-				ninstr->numoperands = 1;
-				ninstr->operands[0] = register_operand(popreg);
-				assert(--r->vregnum > 0);
-			}
-		}
-
-		/* printf("\t\t%s ", vopcode_names[instr->opcode]); */
-		/* for (size_t j = 0; j < instr->numoperands; ++j) */
-		/* 	print_instruction_operand(&instr->operands[j], j != instr->numoperands - 1); */
-		/* printf("\n"); */
-	}
-}
-
-typedef struct
-{
-	bool available;
-	int start, end;
-	voperand_t regop;
-	int type; //fp,gp,xmm
-} active_register_t;
-
-static bool fixup_register_operand(compiler_t* ctx, active_register_t* active_registers, size_t numactiveregisters,
-								   voperand_t* op)
-{
-	switch(op->type)
-	{
-		case VOPERAND_REGISTER:
-		case VOPERAND_INDIRECT_REGISTER:
-			for (size_t i = 0; i < numactiveregisters; ++i)
-			{
-				active_register_t* r = &active_registers[i];
-				if (r->regop.reg.index == op->reg.index && r->regop.size == op->size)
-				{
-					op->reg.index = i;
-					op->virtual = false;
-					return true;
-				}
-			}
-			break;
-
-		case VOPERAND_INDIRECT_REGISTER_DISPLACEMENT:
-		{
-			switch(op->reg_indirect_displacement.reg.index)
-			{
-				case VREG_BP:
-					op->reg_indirect_displacement.reg.index = EBP;
-					break;
-				case VREG_SP:
-					op->reg_indirect_displacement.reg.index = ESP;
-					break;
-				case VREG_RETURN_VALUE:
-					op->reg_indirect_displacement.reg.index = EAX;
-					break;
-				default:
-					return false;
-			}
-			op->virtual = false;
-			return true;
-		}
-
-		case VOPERAND_IMMEDIATE: // no need to fix up immediate values
-			return true;
-			
-		case VOPERAND_LABEL: // or labels
-			return true;
-	}
-	return false;
-}
-
-static active_register_t *find_available_active_register(active_register_t *active_registers, size_t numactiveregisters, size_t *index)
-{
-	for (size_t i = 0; i < numactiveregisters; ++i)
-	{
-		active_register_t* r = &active_registers[i];
-		if(r->available)
-		{
-			*index = i;
-			return r;
-		}
-	}
-	return NULL;
-}
-
-static bool allocate_register_operand(vinstr_t *instructions, size_t numinstructions, size_t current_instruction_index, active_register_t *active_registers, size_t numactiveregisters, voperand_t* op)
-{
-	switch (op->type)
-	{
-		case VOPERAND_REGISTER:
-		case VOPERAND_INDIRECT_REGISTER:
-		{
-			if (op->reg.index < VREG_MAX)
-				return true;
-			op->virtual = false;
-			size_t index;
-			active_register_t *r = find_available_active_register(active_registers, numactiveregisters, &index);
-			if(r)
-			{
-				size_t lf = register_lifetime(instructions, numinstructions, current_instruction_index, *op);
-				r->start = current_instruction_index;
-				r->end = r->start + lf;
-				r->available = false;
-				r->regop = *op;
-				op->reg.index = index;
-				return true;
-			}
-			return false;
-		}
-		break;
-		case VOPERAND_INDIRECT_REGISTER_INDEXED:
-			perror("unimplemented");
-			return false;
-		case VOPERAND_INDIRECT_REGISTER_DISPLACEMENT:
-			// for now we're just using bp so no need
-			assert(op->reg_indirect_displacement.reg.index < VREG_MAX);
-			return true;
-	}
-	return false;
-}
-
-static void expire_active_registers(active_register_t *active_registers, size_t numactiveregisters, size_t instruction_index)
-{
-	for(size_t i = 0; i < numactiveregisters; ++i)
-	{
-		active_register_t *r = &active_registers[i];
-		if(r->available)
-			continue;
-		if(r->end > instruction_index)
-			continue;
-		r->available = true;
-	}
-}
-
-static void print_active_registers(active_register_t *active_registers, size_t numactiveregisters)
-{
-	for(size_t i = 0; i < numactiveregisters; ++i)
-	{
-		printf("active register %d: %s\n", i, active_registers[i].available ? "available" : "not available");
-	}
-}
-
-static void allocate_registers(compiler_t* ctx, function_t* f, vinstr_t* new_instructions,
-							   size_t* new_instruction_length)
-{
-#define MAX_ACTIVE_REGISTERS (6)
-	active_register_t active[MAX_ACTIVE_REGISTERS];
-
-	for (size_t i = 0; i < MAX_ACTIVE_REGISTERS; ++i)
-		active[i].available = true;
-	
-	for (size_t i = 0; i < f->instruction_index; ++i)
-	{
-		expire_active_registers(active, MAX_ACTIVE_REGISTERS, i);
-		
-		vinstr_t instr = f->instructions[i];
-		/* printf("instr=%s\n", vopcode_names[instr.opcode]); */
-		/* print_active_registers(active, MAX_ACTIVE_REGISTERS); */
-		if (vopcode_overwrites_first_operand(instr.opcode))
-		{
-			for (size_t k = 1; k < instr.numoperands; ++k)
-				assert(fixup_register_operand(ctx, active, MAX_ACTIVE_REGISTERS, &instr.operands[k]));
-			assert(instr.numoperands > 0);
-			if(!fixup_register_operand(ctx, active, MAX_ACTIVE_REGISTERS, &instr.operands[0]))
-			{
-				assert(allocate_register_operand(f->instructions, f->instruction_index, i, active, MAX_ACTIVE_REGISTERS,
-												 &instr.operands[0]));
-			}
-		} else
-		{
-			for (size_t k = 0; k < instr.numoperands; ++k)
-				assert(fixup_register_operand(ctx, active, MAX_ACTIVE_REGISTERS, &instr.operands[k]));
-		}
-
-		new_instructions[*new_instruction_length] = instr;
-		*new_instruction_length += 1;
-	}
-}
-
 int compile(compiler_t* ctx, ast_node_t *head)
 {
     if(setjmp(ctx->jmp))
@@ -1493,22 +1307,16 @@ int compile(compiler_t* ctx, ast_node_t *head)
 	//printf("functions:\n");
 	hash_map_foreach_entry(ctx->functions, entry, {
 		function_t* fn = entry->data;
-		printf("--------------------------------\n\n");
-		printf("%s, %d instructions\n", fn->name, fn->instruction_index);
+		/* printf("--------------------------------\n\n"); */
+		/* printf("%s, %d instructions\n", fn->name, fn->instruction_index); */
 		/* print_function_instructions(fn); */
-		printf("--------------------------------\n\n");
+		/* printf("--------------------------------\n\n"); */
 		if (!strcmp(fn->name, "main"))
 		{
 			//printf("bytecode=%d\n",heap_string_size(&fn->bytecode));
 			/* print_hex(fn->bytecode, heap_string_size(&fn->bytecode)); */
 		}
-
-		size_t newinstrlen = 0;
-		vinstr_t newinstr[FUNCTION_MAX_INSTRUCTIONS];
-
-		print_instructions(fn->instructions, fn->instruction_index);
-		allocate_registers(ctx, fn, newinstr, &newinstrlen);
-		print_instructions(newinstr,newinstrlen);
+		/* print_instructions(fn->instructions, fn->instruction_index); */
 		// printf("--------------------------\n");
 
 		hash_map_foreach_entry(fn->variables, ventry,
