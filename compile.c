@@ -655,6 +655,25 @@ static size_t instruction_index(compiler_t* ctx)
 	return ctx->function->instruction_index - 1;
 }
 
+void unary_expr(compiler_t *ctx, ast_node_t *n, voperand_t *dst)
+{
+	voperand_t arg;
+    rvalue(ctx, n->unary_expr_data.argument, &arg);
+    switch (n->unary_expr_data.operator)
+    {
+
+	case '-':
+	{
+		//TODO: add opcodes or proxy it through bin_expr with
+		//lhs = 0
+		//rhs = arg
+		//and operator -
+		//0 - arg = -arg
+	} break;
+	
+    }
+}
+
 void bin_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 {
 	voperand_t lhs, rhs;
@@ -816,6 +835,7 @@ void function_call_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 
 rvalue_map_t rvalues[] = {{AST_LITERAL, literal},
 						  {AST_BIN_EXPR, bin_expr},
+						  {AST_UNARY_EXPR, unary_expr},
 						  {AST_ASSIGNMENT_EXPR, assignment_expr},
 						  {AST_FUNCTION_CALL_EXPR, function_call_expr}};
 
