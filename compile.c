@@ -1134,12 +1134,51 @@ bool while_statement(compiler_t* ctx, ast_node_t* n)
 	return true;
 }
 
+void statement(compiler_t *ctx, ast_node_t *n)
+{
+	//basically we don't care about the result
+	voperand_t op;
+	rvalue(ctx, n, &op);
+}
+
+void init_statement(compiler_t *ctx, ast_node_t *n)
+{
+	if(n->type == AST_VARIABLE_DECL)
+		variable_declaration(ctx, n);
+	else
+    {
+        voperand_t op;
+        rvalue(ctx, n, &op);
+    }
+}
+
 bool for_statement(compiler_t* ctx, ast_node_t* n)
 {
 	scope_t scope = {0};
 	enter_scope(ctx, &scope);
-	// TODO: FIXME
+
+	//run init of the for loop first
+	init_statement(ctx, n->for_stmt_data.init);
 	
+	size_t pos_beg = instruction_index(ctx);
+
+	voperand_t label_beg = label_operand(get_label(ctx));
+	scope.breaklabel = label_operand(get_label(ctx));
+	emit_instruction1(ctx, VOP_LABEL, label_beg);
+
+	voperand_t op;
+	//init,test,update,body
+	rvalue(ctx, n->for_stmt_data.test, &op);
+	
+	emit_instruction2(ctx, VOP_TEST, op, op);
+	emit_instruction1(ctx, VOP_JZ, scope.breaklabel);
+	
+	compile_visit_node(ctx, n->for_stmt_data.body);
+	statement(ctx, n->for_stmt_data.update);
+	emit_instruction1(ctx, VOP_JMP, label_beg);
+	emit_instruction1(ctx, VOP_LABEL, scope.breaklabel);
+	
+	exit_scope(ctx);
 	return true;
 }
 
