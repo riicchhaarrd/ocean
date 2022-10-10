@@ -62,6 +62,19 @@ void push(heap_string *s, voperand_t *op)
 	}
 }
 
+void mov(heap_string *s, voperand_t *dst, voperand_t *src)
+{
+}
+void div(heap_string *s, voperand_t *dst, voperand_t *src)
+{
+}
+void mul(heap_string *s, voperand_t *dst, voperand_t *src)
+{
+}
+void sub(heap_string *s, voperand_t *dst, voperand_t *src)
+{
+}
+
 bool x86(function_t *f, heap_string *s)
 {
 	for(size_t i = 0; i < f->instruction_index; ++i)
@@ -105,20 +118,36 @@ bool x86(function_t *f, heap_string *s)
 				dd(s, numbytes);
 			}
 			break;
+			
 			case VOP_ENTER:
-				db(s, 0x55); //push ebp
-				db(s, 0x89); //mov ebp, esp
+				db(s, 0x55); // push ebp
+				db(s, 0x89); // mov ebp, esp
 				db(s, 0xe5);
 				break;
 			case VOP_LEAVE:
-				db(s, 0x5d); //pop ebp
-				db(s, 0x89); //mov esp, ebp
+				db(s, 0x5d); // pop ebp
+				db(s, 0x89); // mov esp, ebp
 				db(s, 0xec);
 				break;
 
-		default:
-			printf("unhandled opcode %s", vopcode_names[instr->opcode]);
-			return false;
+			case VOP_RET:
+				break;
+
+			case VOP_LABEL:
+				break;
+
+			case VOP_JMP:
+				break;
+
+			case VOP_MOV:
+			{
+				assert(instr->numoperands == 2);
+				mov(s, &instr->operands[0], &instr->operands[1]);
+			} break;
+
+			default:
+				printf("unhandled opcode %s", vopcode_names[instr->opcode]);
+				return false;
 		}
 	}
 	return true;

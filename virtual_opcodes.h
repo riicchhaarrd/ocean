@@ -2,10 +2,11 @@
 #define VIRTUAL_OPCODES_H
 #include <stdbool.h>
 
-static const char* vopcode_names[] = {
-	"add",	"sub", "mul", "div", "mod",	 "fadd", "fsub",  "fmul", "fdiv", "fmod",  "sitofp", "fptosi", "and",
-	"or",	"xor", "not", "mov", "load", "lea",	 "store", "push", "pop",  "enter", "leave",	 "call",   "ret",
-	"test", "cmp", "jmp", "jnz", "jz",	 "jle",	 "jge",	  "jg",	  "jl",	  "label", "alloca", "hlt",	   NULL};
+static const char* vopcode_names[] = {"add",  "sub",		 "mul",	   "div",	 "mod",	  "fadd",	"fsub",	 "fmul",
+									  "fdiv", "fmod",		 "sitofp", "fptosi", "and",	  "or",		"xor",	 "not",
+									  "mov",  "load",		 "lea",	   "store",	 "push",  "pop",	"enter", "leave",
+									  "call", "call extern", "ret",	   "test",	 "cmp",	  "jmp",	"jnz",	 "jz",
+									  "jle",  "jge",		 "jg",	   "jl",	 "label", "alloca", "hlt",	 NULL};
 
 typedef enum
 {	
@@ -42,6 +43,7 @@ typedef enum
 	VOP_LEAVE,
 
 	VOP_CALL,
+	VOP_CALL_EXTERN,
 	VOP_RET,
 
 	VOP_TEST,

@@ -778,25 +778,32 @@ void function_call_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
 	ast_node_t* callee = n->call_expr_data.callee;
 	function_t* fn = lookup_function_by_name(ctx, callee->identifier_data.name);
 
-	size_t cost = 0;
-
-	for(size_t i = 0; i < numargs; ++i)
+	if (fn)
 	{
-		ast_node_t* arg = args[numargs - i - 1];
-		assert(arg->type == AST_IDENTIFIER || arg->type == AST_PRIMITIVE || arg->type == AST_LITERAL || arg->type == AST_FUNCTION_CALL_EXPR);
-		int vs = data_type_size(ctx, arg) / 8;
-		assert(vs > 0);
-		voperand_t op;
-		rvalue(ctx, arg, &op);
-		emit_instruction1(ctx, VOP_PUSH, op);
-		cost += vs;
+
+		size_t cost = 0;
+
+		for (size_t i = 0; i < numargs; ++i)
+		{
+			ast_node_t* arg = args[numargs - i - 1];
+			assert(arg->type == AST_IDENTIFIER || arg->type == AST_PRIMITIVE || arg->type == AST_LITERAL ||
+				   arg->type == AST_FUNCTION_CALL_EXPR);
+			int vs = data_type_size(ctx, arg) / 8;
+			assert(vs > 0);
+			voperand_t op;
+			rvalue(ctx, arg, &op);
+			emit_instruction1(ctx, VOP_PUSH, op);
+			cost += vs;
+		}
+		assert(cost == fn->argcost);
+		emit_instruction1(ctx, VOP_CALL, imm32_operand(fn->index));
+		vregister_t spreg = {.index = VREG_SP};
+		emit_instruction2(ctx, VOP_ADD, register_operand(spreg), imm32_operand(fn->argcost));
 	}
-
-	assert(cost == fn->argcost);
-
-	emit_instruction1(ctx, VOP_CALL, imm32_operand(fn->index));
-	vregister_t spreg = {.index = VREG_SP};
-	emit_instruction2(ctx, VOP_ADD, register_operand(spreg), imm32_operand(fn->argcost));
+	else
+	{
+		emit_instruction1(ctx, VOP_CALL_EXTERN, imm32_operand(-1));
+	}
 	vregister_t retreg = {.index = VREG_RETURN_VALUE };
 	*dst = register_operand(retreg);
 	/* if(!fn) */
@@ -1127,12 +1134,22 @@ bool while_statement(compiler_t* ctx, ast_node_t* n)
 	return true;
 }
 
+bool for_statement(compiler_t* ctx, ast_node_t* n)
+{
+	scope_t scope = {0};
+	enter_scope(ctx, &scope);
+	// TODO: FIXME
+	
+	return true;
+}
+
 static ast_node_map_t nodes[] = {{AST_PROGRAM, program},
 								 {AST_RETURN_STMT, return_statement},
 								 {AST_BLOCK_STMT, block_statement},
 								 {AST_FUNCTION_DECL, function_declaration},
 								 {AST_VARIABLE_DECL, variable_declaration},
 								 {AST_WHILE_STMT, while_statement},
+								 {AST_FOR_STMT, for_statement},
 								 {AST_IF_STMT, if_statement}};
 
 bool compile_visit_node(compiler_t* ctx, ast_node_t* n)
@@ -1316,7 +1333,7 @@ int compile(compiler_t* ctx, ast_node_t *head)
 			//printf("bytecode=%d\n",heap_string_size(&fn->bytecode));
 			/* print_hex(fn->bytecode, heap_string_size(&fn->bytecode)); */
 		}
-		/* print_instructions(fn->instructions, fn->instruction_index); */
+		print_instructions(fn->instructions, fn->instruction_index);
 		// printf("--------------------------\n");
 
 		hash_map_foreach_entry(fn->variables, ventry,

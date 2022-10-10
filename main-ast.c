@@ -96,8 +96,8 @@ int main(int argc, char **argv)
 	assert(fn);
 	heap_string s = NULL;
 	bool x86(function_t * f, heap_string*);
-	x86(fn, &s);
-	print_hex(s, heap_string_size(&s));
+	/* x86(fn, &s); */
+	/* print_hex(s, heap_string_size(&s)); */
 	
 	heap_string_free(&s);
 	free(tokens);
