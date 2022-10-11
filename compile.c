@@ -17,6 +17,7 @@
 
 bool rvalue(compiler_t* ctx, ast_node_t* n, voperand_t* dst);
 bool compile_visit_node(compiler_t* ctx, ast_node_t* n);
+void compile_error(compiler_t *ctx, const char *fmt, ...);
 
 static size_t get_label(compiler_t *ctx)
 {
@@ -672,6 +673,10 @@ void unary_expr(compiler_t *ctx, ast_node_t *n, voperand_t *dst)
 	} break;
 	
     }
+		default:
+			compile_error(ctx, "Unhandled operator %d for unary expression", n->unary_expr_data.operator);
+			break;
+	}
 }
 
 void bin_expr(compiler_t* ctx, ast_node_t* n, voperand_t* dst)
@@ -881,6 +886,17 @@ static void compiler_assert_r(compiler_t *ctx, int expr, const char *expr_str, c
 	longjmp(ctx->jmp, 1);
 }
 
+void compile_error(compiler_t *ctx, const char *fmt, ...)
+{
+	char buffer[512] = { 0 };
+	va_list va;
+	va_start( va, fmt );
+	vsnprintf( buffer, sizeof( buffer ), fmt, va );
+	printf( "[compile error]: %s\n", buffer );
+	va_end( va );
+
+	longjmp(ctx->jmp, 1);
+}
 static ast_node_t *allocate_variable(compiler_t *ctx, ast_node_t *n, const char *varname, int offset, int size)
 {
 	variable_t tv = { .offset = offset, .is_param = 0, .data_type_node = n->variable_decl_data.data_type };
